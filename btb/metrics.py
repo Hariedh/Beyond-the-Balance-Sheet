@@ -69,6 +69,11 @@ def compute_metrics(fin: pd.DataFrame) -> pd.DataFrame:
     df["current_ratio"] = safe_div(df["current_assets_cr"], df["current_liabilities_cr"])
     df["ocf_to_debt"] = safe_div(df["operating_cash_flow_cr"], df["total_debt_cr"])
     df["ebit_margin"] = safe_div(df["ebit_cr"], df["revenue_cr"])
+    # Free cash flow = operating cash flow - capex (capex stored as a positive outflow).
+    # NaN unless BOTH inputs are present: a missing capex is never treated as zero.
+    capex = df["capex_cr"] if "capex_cr" in df else pd.Series(float("nan"), index=df.index)
+    df["capex_cr"] = capex
+    df["free_cash_flow_cr"] = df["operating_cash_flow_cr"] - capex
 
     grp = df.groupby(["company_id", "basis"], sort=False)
     for col in ("fy_start", "period_months", "revenue_cr", "ebit_cr", "total_debt_cr", "ebit_margin"):
@@ -111,3 +116,32 @@ def ratio_notes(row: pd.Series) -> str:
     if pd.notna(rev) and rev <= 0:
         notes.append("non-positive revenue: margin not meaningful")
     return "; ".join(notes)
+
+
+def context_notes(row: pd.Series, current_ratio_min: float = 1.0) -> list[str]:
+    """Reading cautions that apply to this company-year (shown beside the metrics).
+
+    These are interpretation prompts, not findings: they stop one ratio being read in isolation.
+    """
+    notes: list[str] = []
+    ic, ocf = row.get("interest_coverage"), row.get("operating_cash_flow_cr")
+    if pd.notna(ic) and pd.notna(ocf) and ocf < 0:
+        notes.append("Interest coverage uses accounting EBIT, not cash. Operating cash flow was negative this year, "
+                     "so a comfortable coverage ratio should not be read as low overall credit risk. Check working "
+                     "capital, debt maturities and liquidity.")
+    fcf = row.get("free_cash_flow_cr")
+    if pd.notna(fcf) and fcf < 0 and pd.notna(ocf) and ocf >= 0:
+        notes.append("Free cash flow is negative because capex exceeded operating cash flow. In a capital-intensive "
+                     "industry this can reflect expansion spending rather than stress; check how it was financed.")
+    cr = row.get("current_ratio")
+    if pd.notna(cr) and cr < current_ratio_min:
+        notes.append("A current ratio below the threshold can be structural for some business models (for example "
+                     "when dealer deposits and payables fund operations). Compare with the company's own history and peers.")
+    de = row.get("debt_to_equity")
+    if pd.notna(de) and de < 0.1:
+        notes.append("Debt-to-equity is very low. Check the debt definition (borrowings, leases) before concluding "
+                     "that obligations are small: guarantees, contingent liabilities and other commitments are not included.")
+    if pd.notna(row.get("revenue_growth")):
+        notes.append("Revenue growth is as reported. It does not separate volume from price, or organic growth from "
+                     "acquisitions and changes in consolidation scope; read it with the data notes.")
+    return notes

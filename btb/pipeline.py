@@ -9,7 +9,8 @@ import pandas as pd
 from . import config
 from .db import connect, init_db, load_fin
 from .flags import Thresholds, evaluate_flags
-from .loader import LoadReport, load_companies, load_disclosures, load_external, load_financials
+from .loader import (LoadReport, load_companies, load_disclosures, load_external, load_financials,
+                     load_source_verification)
 from .metrics import compute_metrics, ratio_notes
 from .validation import issues_to_frame, validate_financials
 
@@ -42,6 +43,7 @@ def run_pipeline(
     financial_files: Iterable[Path] = config.DEFAULT_FINANCIAL_FILES,
     disclosure_files: Iterable[Path] = config.DEFAULT_DISCLOSURE_FILES,
     external_files: Iterable[Path] = config.DEFAULT_EXTERNAL_FILES,
+    verification_files: Iterable[Path] = config.DEFAULT_VERIFICATION_FILES,
     export_dir: Path | None = config.PROCESSED_DIR,
     thresholds: Thresholds | None = None,
 ) -> dict:
@@ -55,7 +57,8 @@ def run_pipeline(
         fin_report = load_financials(conn, financial_files)
         disc_report = load_disclosures(conn, disclosure_files)
         ext_report = load_external(conn, external_files)
-        for r in (companies_report, fin_report, disc_report, ext_report):
+        ver_report = load_source_verification(conn, verification_files)
+        for r in (companies_report, fin_report, disc_report, ext_report, ver_report):
             report.merge(r)
 
         fin = load_fin(conn)
@@ -83,6 +86,7 @@ def run_pipeline(
             "financial_rows_rejected": fin_report.rows_rejected,
             "disclosures_loaded": disc_report.rows_loaded,
             "external_indicators_loaded": ext_report.rows_loaded,
+            "source_verifications_loaded": ver_report.rows_loaded,
             "flags": len(flags),
             "issues_error": sum(i["severity"] == "error" for i in issues),
             "issues_warning": sum(i["severity"] == "warning" for i in issues),

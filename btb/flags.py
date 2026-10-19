@@ -17,7 +17,8 @@ from .fmt import fmt_cr, fmt_pct, fmt_x
 class Thresholds:
     interest_coverage_min: float = 1.5   # flag if EBIT / interest is below this
     current_ratio_min: float = 1.0       # flag if current ratio is below this
-    sustained_years: int = 2             # consecutive year-on-year declines needed
+    sustained_years: int = 2             # directly consecutive observed years needed for 'persistent'
+    debt_rise_min_pct: float = 0.10      # debt must rise by at least this share of prior debt to count
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -30,6 +31,7 @@ RULES: dict[str, tuple[str, str]] = {
     "LOW_CURRENT_RATIO": ("Current ratio is below the threshold", "warning"),
     "SUSTAINED_EBIT_MARGIN_DECLINE": ("EBIT margin fell in each of the last N consecutive years", "warning"),
     "SUSTAINED_REVENUE_DECLINE": ("Revenue fell in each of the last N consecutive years", "warning"),
+    "NEGATIVE_FREE_CASH_FLOW": ("Free cash flow (operating cash flow minus capex) is negative", "info"),
     "NONPOSITIVE_EQUITY": ("Total equity is zero or negative, so debt-to-equity is not meaningful", "info"),
 }
 
@@ -39,27 +41,22 @@ FLAG_COLUMNS = [
 ]
 
 
-def _run_lengths(condition: pd.Series, m: pd.DataFrame) -> pd.Series:
-    """Length of the current streak of True values within each company/basis."""
-    runs = pd.Series(0, index=m.index, dtype="int64")
-    for _, idx in m.groupby(["company_id", "basis"], sort=False).groups.items():
-        streak = 0
-        for i in idx:
-            streak = streak + 1 if bool(condition.loc[i]) else 0
-            runs.loc[i] = streak
-    return runs
-
-
 def evaluate_flags(m: pd.DataFrame, t: Thresholds | None = None) -> pd.DataFrame:
     """Apply every rule to a metrics frame (see metrics.compute_metrics)."""
     t = t or Thresholds()
     if m.empty:
         return pd.DataFrame(columns=FLAG_COLUMNS)
 
-    margin_down = (m["margin_change"] < 0).fillna(False)
-    revenue_down = (m["revenue_growth"] < 0).fillna(False)
-    margin_run = _run_lengths(margin_down, m)
-    revenue_run = _run_lengths(revenue_down, m)
+    # Persistence (see btb/persistence.py): missing / non-comparable years are 'not assessable',
+    # never 'ok', and interrupt a run of declines.
+    from .persistence import persistence_table
+    pers = persistence_table(m, t).set_index(["company_id", "basis", "financial_year", "indicator"])
+    streaks = pers["streak"].to_dict()
+    statuses = pers["status"].to_dict()
+
+    def streak_of(r, indicator: str) -> int:
+        key = (r.company_id, r.basis, r.financial_year, indicator)
+        return int(streaks.get(key, 0)) if statuses.get(key) == "persistent" else 0
 
     rows: list[dict] = []
 
@@ -85,27 +82,40 @@ def evaluate_flags(m: pd.DataFrame, t: Thresholds | None = None) -> pd.DataFrame
             add(r, "NEGATIVE_OPERATING_CASH_FLOW", "< 0", r.operating_cash_flow_cr,
                 f"Operating cash flow was {fmt_cr(r.operating_cash_flow_cr)}.")
 
-        if pd.notna(r.debt_change_cr) and pd.notna(r.ebit_change_cr) \
-                and r.debt_change_cr > 0 and r.ebit_change_cr < 0:
-            add(r, "DEBT_UP_EBIT_DOWN", "debt change > 0 and EBIT change < 0", r.debt_change_cr,
-                f"Total debt rose by {fmt_cr(r.debt_change_cr)} to {fmt_cr(r.total_debt_cr)} while EBIT "
-                f"fell by {fmt_cr(abs(r.ebit_change_cr))} to {fmt_cr(r.ebit_cr)}.")
+        if pd.notna(r.debt_change_cr) and pd.notna(r.ebit_change_cr) and pd.notna(r.prev_total_debt_cr) \
+                and r.prev_total_debt_cr > 0 and r.ebit_change_cr < 0 \
+                and r.debt_change_cr / r.prev_total_debt_cr >= t.debt_rise_min_pct:
+            add(r, "DEBT_UP_EBIT_DOWN",
+                f"debt rise >= {t.debt_rise_min_pct:.0%} of prior debt and EBIT change < 0", r.debt_change_cr,
+                f"Total debt rose by {fmt_cr(r.debt_change_cr)} ({r.debt_change_cr / r.prev_total_debt_cr:+.0%}) to "
+                f"{fmt_cr(r.total_debt_cr)} while EBIT fell by {fmt_cr(abs(r.ebit_change_cr))} to {fmt_cr(r.ebit_cr)}.")
+
+        if pd.notna(r.free_cash_flow_cr) and r.free_cash_flow_cr < 0:
+            why = ("Operating cash flow was itself negative, so this is not explained by investment alone."
+                   if r.operating_cash_flow_cr < 0 else
+                   "Capex exceeded operating cash flow; heavy expansion spending can cause this without distress.")
+            add(r, "NEGATIVE_FREE_CASH_FLOW", "< 0", r.free_cash_flow_cr,
+                f"Free cash flow was {fmt_cr(r.free_cash_flow_cr)} (operating cash flow {fmt_cr(r.operating_cash_flow_cr)} "
+                f"minus capex {fmt_cr(r.capex_cr)}). {why}")
 
         if pd.notna(r.current_ratio) and r.current_ratio < t.current_ratio_min:
             add(r, "LOW_CURRENT_RATIO", f"< {t.current_ratio_min:g}x", r.current_ratio,
                 f"Current ratio {fmt_x(r.current_ratio)} (current assets {fmt_cr(r.current_assets_cr)} / "
-                f"current liabilities {fmt_cr(r.current_liabilities_cr)}) is below {t.current_ratio_min:g}x.")
+                f"current liabilities {fmt_cr(r.current_liabilities_cr)}) is below {t.current_ratio_min:g}x. "
+                f"This can be normal for some business models, so compare with the company's own history and peers.")
 
-        if margin_run.loc[idx] >= t.sustained_years:
+        n = streak_of(r, "EBIT_MARGIN_DECLINE")
+        if n:
             add(r, "SUSTAINED_EBIT_MARGIN_DECLINE", f">= {t.sustained_years} consecutive declines",
                 r.ebit_margin,
-                f"EBIT margin fell for {int(margin_run.loc[idx])} consecutive years, to {fmt_pct(r.ebit_margin)} "
+                f"EBIT margin fell for {n} directly consecutive comparable years, to {fmt_pct(r.ebit_margin)} "
                 f"(latest change {r.margin_change * 100:+.1f} percentage points).")
 
-        if revenue_run.loc[idx] >= t.sustained_years:
+        n = streak_of(r, "REVENUE_DECLINE")
+        if n:
             add(r, "SUSTAINED_REVENUE_DECLINE", f">= {t.sustained_years} consecutive declines",
                 r.revenue_growth,
-                f"Revenue fell for {int(revenue_run.loc[idx])} consecutive years; latest growth "
+                f"Revenue fell for {n} directly consecutive comparable years; latest growth "
                 f"{fmt_pct(r.revenue_growth)} to {fmt_cr(r.revenue_cr)}.")
 
         if pd.notna(r.total_equity_cr) and r.total_equity_cr <= 0:
@@ -121,12 +131,14 @@ SENSITIVITY_GRID = {
     "interest_coverage_min": (1.0, 1.5, 2.0, 3.0),
     "current_ratio_min": (0.8, 1.0, 1.2, 1.5),
     "sustained_years": (1, 2, 3),
+    "debt_rise_min_pct": (0.0, 0.05, 0.10, 0.20),
 }
 _PARAM_RULES = {
     "interest_coverage_min": [("LOW_INTEREST_COVERAGE", "interest_coverage")],
     "current_ratio_min": [("LOW_CURRENT_RATIO", "current_ratio")],
     "sustained_years": [("SUSTAINED_EBIT_MARGIN_DECLINE", "margin_change"),
                         ("SUSTAINED_REVENUE_DECLINE", "revenue_growth")],
+    "debt_rise_min_pct": [("DEBT_UP_EBIT_DOWN", "ebit_change_cr")],
 }
 
 

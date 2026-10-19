@@ -22,6 +22,8 @@ INPUT_FIELDS = {
     "total_debt_cr": "Total debt",
     "total_equity_cr": "Total equity",
     "operating_cash_flow_cr": "Operating cash flow",
+    "capex_cr": "Capital expenditure",
+    "free_cash_flow_cr": "Free cash flow (operating cash flow minus capex)",
 }
 MAX_EXTERNAL_ROWS = 40
 
@@ -82,6 +84,8 @@ def build_packet(conn, ticker: str, basis: str, fy_from: str | None = None, fy_t
     disclosures = [{
         "id": f"DISC.{int(r.disclosure_id)}", "financial_year": r.financial_year, "topic": r.topic,
         "excerpt": r.excerpt, "source_doc": r.source_doc, "page_ref": r.page_ref,
+        "publication_date": r.publication_date, "related_metric": r.related_metric,
+        "relationship": r.relationship,
         "is_illustrative": bool(r.is_illustrative),
     } for r in d.itertuples() if r.financial_year is None or r.financial_year in years]
 
@@ -96,6 +100,10 @@ def build_packet(conn, ticker: str, basis: str, fy_from: str | None = None, fy_t
                          "WHERE ticker = ? AND severity IN ('error', 'warning')", (ticker,))
     data_notes = [f"[{r.severity}] {r.check_name} {r.financial_year or ''}: {r.detail}".strip()
                   for r in iss.itertuples()]
+
+    if not disclosures and not external:
+        data_notes.append("[info] no_explanatory_evidence: no company disclosures or external indicators are loaded, "
+                          "so changes can be described but no cause can be documented.")
 
     return {
         "company": {"ticker": ticker, "name": company["name"], "industry": company["industry"]},

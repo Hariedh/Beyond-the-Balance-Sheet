@@ -8,10 +8,22 @@ An explainable screening tool for corporate financial risk indicators among Indi
 
 | Dataset | Status |
 |---|---|
-| `data/raw/financials_real.csv` | **Real data**: 5 Indian cement companies (UltraTech, Ambuja, Shree, Dalmia, ACC), consolidated, 26 company-years, FY2020-21 to FY2025-26. Collected from Screener.in and stockanalysis.com (secondary aggregators) on 19 Oct 2026, cross-checked automatically and spot-checked against two primary filings. **Not yet hand-checked against annual reports.** |
+| `data/raw/financials_real.csv` (+ `financials_real_crosschecks.csv`, the log of every automated check) | **Real data**: 5 Indian cement companies (UltraTech, Ambuja, Shree, Dalmia, ACC), consolidated, 26 company-years, FY2020-21 to FY2025-26 (capex for 21 of them). Collected from Screener.in and stockanalysis.com (secondary aggregators) on 19 Oct 2026, cross-checked automatically. 61 inputs for the five companies were compared with primary filings (`source_verification.csv`, see `docs/source_verification_worksheet.md`): 49 verified, 4 approx, 4 discrepancy (all Ambuja, unresolved), 4 not like-for-like. Filing text was read by automated extraction, not visually in a PDF viewer. Most other years remain unverified. |
 | `data/raw/financials_demo_ILLUSTRATIVE.csv` | **Synthetic.** Three fictional companies (DEMOA/B/C) used for tests and demos. Labelled illustrative throughout the app; never mixed with real data. |
 
-Important caveats (details in `data/raw/SOURCES.md`): Ambuja and ACC changed year-end from December to March, so FY2022-23 is a **15-month period** and their earlier calendar-year periods are not loaded; current assets/liabilities are unavailable for FY2020-21; cash is deliberately blank; EBIT = operating profit - depreciation; equity excludes non-controlling interests.
+Important caveats (details in `data/raw/SOURCES.md`): Ambuja and ACC changed year-end from December to March, so FY2022-23 is a **15-month period** and their earlier calendar-year periods are not loaded; current assets/liabilities are unavailable for FY2020-21; cash is deliberately blank; EBIT = revenue - (total expenses - finance costs), i.e. before other income and exceptional items; equity excludes non-controlling interests.
+
+## The analysis workflow (what the dashboard walks through)
+
+1. Select a company, basis and year range (comparability notes appear at once).
+2. Review performance: six ratios plus operating cash flow, capex and free cash flow.
+3. Warnings: each rule shows indicator, observed value, threshold, formula, why it matters, persistence, history, peer context, data quality and follow-up. Signals are labelled breach / deterioration / convergence / conflict / data limitation / inconclusive.
+4. Trends and peers (same universe, same basis and year, 12-month periods only, no ranking).
+5. Stress test: revenue fall, EBIT-margin fall, optional fixed-cost share; baseline vs scenario; break-even revenue fall.
+6. Evidence: primary-source disclosures, source-verification table, unresolved questions, data-quality issues.
+7. Analyst summary and CSV export (observed / checked / hypothesis / scenario / limitation kept apart).
+
+See `docs/AUDIT_FINDINGS.md` (issue table), `docs/reconciliation_report.md`, `docs/source_verification_worksheet.md`, `docs/WORKFLOW.md`, `docs/CHANGES.md`, `docs/DEMO_SCRIPT.md`, `docs/INTERVIEW_NOTES.md`.
 
 ## Quick start
 
@@ -21,7 +33,7 @@ pip install -r requirements.txt
 
 python scripts/run_pipeline.py        # builds data/btb.sqlite from real + demo data, validates, computes ratios and flags
 streamlit run app.py                  # dashboard
-pytest                                # 96 tests
+pytest                                # 146 tests
 ```
 
 Real data only: `python scripts/run_pipeline.py --real-only`. To rebuild the real CSV after editing a figure: `python scripts/build_real_financials.py`.
@@ -54,11 +66,15 @@ data/raw/*.csv ──► loader ──► financials_raw (verbatim text) ──�
 | Revenue growth | (revenue - prior revenue) / prior revenue | prior year not the immediately preceding FY |
 | EBIT margin | EBIT / revenue | revenue <= 0 or missing |
 
-A ratio is **never** silently set to zero. Missing stays NULL, and the app shows "n/a".
+A ratio is **never** silently set to zero. Missing stays NULL, and the app shows "n/a". Small values keep three decimals (a 0.016x debt-to-equity is not shown as 0.02x), and the coverage and leverage charts label each point with the displayed value.
+
+**Cash-flow context (not a seventh ratio).** Optional `capex` (entered as a positive outflow) gives **free cash flow = operating cash flow - capex**, NaN unless both are present. Interest coverage uses accounting EBIT, so the dashboard adds a "How to read this year" box: for example, a comfortable coverage ratio next to negative operating cash flow is not read as low credit risk; low current ratios, very low debt-to-equity and reported revenue growth each carry a note about what they do not show.
+
+**Not modelled:** debt maturities and repayment schedules, cash and liquid investments, guarantees and contingent liabilities, and any split of revenue growth into volume, price and acquisitions.
 
 ### Warning rules (default thresholds are illustrative, adjustable in the sidebar)
 
-`LOW_INTEREST_COVERAGE` (< 1.5x), `NEGATIVE_OPERATING_CASH_FLOW`, `DEBT_UP_EBIT_DOWN`, `LOW_CURRENT_RATIO` (< 1.0x), `SUSTAINED_EBIT_MARGIN_DECLINE` and `SUSTAINED_REVENUE_DECLINE` (2 consecutive declines), plus an informational `NONPOSITIVE_EQUITY`. Every flag records the threshold and the numbers. There is deliberately **no composite score**. A sensitivity table shows how flag counts change under alternative thresholds. Note that a current ratio below 1 can be normal for some business models, so interpret it within the industry.
+`LOW_INTEREST_COVERAGE` (< 1.5x), `NEGATIVE_OPERATING_CASH_FLOW`, `DEBT_UP_EBIT_DOWN`, `LOW_CURRENT_RATIO` (< 1.0x), `SUSTAINED_EBIT_MARGIN_DECLINE` and `SUSTAINED_REVENUE_DECLINE` (2 consecutive declines), plus informational `NEGATIVE_FREE_CASH_FLOW` (heavy expansion capex can cause it) and `NONPOSITIVE_EQUITY`. Every flag records the threshold and the numbers. There is deliberately **no composite score**. A sensitivity table shows how flag counts change under alternative thresholds. Note that a current ratio below 1 can be normal for some business models, so interpret it within the industry.
 
 ### AI commentary (optional)
 
@@ -86,10 +102,11 @@ sql/schema.sql             tables with CHECK constraints and foreign keys
 sql/views.sql              v_fin and v_ratios (window functions, NULL-safe CASE guards)
 sql/analysis_queries.sql   10 named example queries (JOIN, GROUP BY, window, NULL handling)
 scripts/run_pipeline.py    CLI to rebuild the database
+scripts/make_hand_check_sheet.py  worksheet (data/processed/hand_check_sheet.csv) for verifying ratios against annual reports
 scripts/build_real_financials.py  every transcribed real figure, derivations, cross-checks -> financials_real.csv
 data/raw/                  inputs + SOURCES.md; data/processed/ holds exported CSVs
 docs/                      data_dictionary.md, evaluation_guide.md, report_template.md
-tests/                     96 tests (pytest)
+tests/                     146 tests (pytest)
 ```
 
 SQLite notes: foreign keys are enforced because every connection runs `PRAGMA foreign_keys = ON`; `CHECK` constraints enforce the financial-year format, basis and unit lists.
@@ -99,10 +116,17 @@ SQLite notes: foreign keys are enforced because every connection runs `PRAGMA fo
 1. Read `data/raw/SOURCES.md`. `financials_real.csv` is pre-filled; add rows or correct values there (one row per company, year and basis; blank cells stay NULL) or edit `scripts/build_real_financials.py` and re-run it.
 2. Record `definitions_note` and `source` for every row, and keep definitions consistent across companies (especially EBIT, finance costs and whether lease liabilities are in debt).
 3. `python scripts/run_pipeline.py --real-only`, then read `data/processed/validation_issues.csv`. Resolve warnings about units, gaps, restatements and large revenue jumps (mergers, changes in reporting period).
-4. Hand-check at least one ratio per company against the source statements.
-5. Optionally add short attributed excerpts to `disclosures.csv` and dated series to `external_indicators.csv`. Excerpts are capped at 600 characters, so paraphrase where you can.
+4. Hand-check at least one ratio per company against the source statements: run `python scripts/make_hand_check_sheet.py` and fill in `hand_value`, `source_page` and `match_Y_or_N` from the annual report.
+5. Optionally add short attributed excerpts to `disclosures.csv` (5 are loaded already) and dated series to `external_indicators.csv`. Excerpts are capped at 600 characters, so paraphrase where you can.
 
 Confirm access before relying on any source (for example, CMIE Prowess DX availability through GIPE is unconfirmed), and re-verify the candidate sample for comparability and restructurings before treating it as final.
+
+## What this project cannot claim
+
+* It does not predict which companies will default, or estimate a probability of default.
+* It does not show that any external event caused a company's numbers to change.
+* It does not produce validated credit-risk classifications or ratings.
+* Five cement companies do not generalise to all Indian listed companies.
 
 ## Limitations
 

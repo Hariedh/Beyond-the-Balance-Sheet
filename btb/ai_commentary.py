@@ -72,6 +72,7 @@ FOLLOW_UP_BY_RULE = {
     "LOW_CURRENT_RATIO": "Is the low current ratio structural (e.g. normal for this business model) or a sign of near-term funding pressure? What undrawn facilities exist?",
     "SUSTAINED_EBIT_MARGIN_DECLINE": "Which cost lines (energy, freight, raw materials) or price/mix changes are documented in the annual report for the margin decline?",
     "SUSTAINED_REVENUE_DECLINE": "Is the decline driven by volume, price or a scope change such as a divestment or demerger?",
+    "NEGATIVE_FREE_CASH_FLOW": "Was the capex growth or maintenance spending, and how was the cash shortfall financed (new debt, cash, equity)?",
     "NONPOSITIVE_EQUITY": "What caused equity to turn non-positive (accumulated losses, buybacks, restatement) and how should leverage be assessed instead?",
 }
 

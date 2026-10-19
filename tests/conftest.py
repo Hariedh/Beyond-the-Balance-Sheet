@@ -44,7 +44,7 @@ def run(tmp_path, tmp_inputs):
         c, f = tmp_inputs(companies, fin_rows)
         db = tmp_path / "t.sqlite"
         summary = run_pipeline(db_path=db, company_files=[c], financial_files=[f], disclosure_files=[],
-                               external_files=[], export_dir=None, thresholds=thresholds)
+                               external_files=[], verification_files=[], export_dir=None, thresholds=thresholds)
         return db, summary
     return _run
 

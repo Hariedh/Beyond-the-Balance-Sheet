@@ -44,9 +44,13 @@ NUMERIC_FIELDS = (
 )
 # Needed for the six ratios; cash is optional.
 CORE_FIELDS = NUMERIC_FIELDS[:-1]
+# Optional numeric inputs: the CSV column may be absent. Capital expenditure is entered as a
+# POSITIVE number (cash outflow); free cash flow = operating cash flow - capex.
+OPTIONAL_NUMERIC_FIELDS = ("capex",)
+ALL_NUMERIC_FIELDS = (*NUMERIC_FIELDS, *OPTIONAL_NUMERIC_FIELDS)
 
 FINANCIAL_CSV_REQUIRED = ("ticker", "financial_year", "basis", "unit", *NUMERIC_FIELDS)
-FINANCIAL_CSV_OPTIONAL = ("period_months", "definitions_note", "source", "source_url", "notes", "is_illustrative")
+FINANCIAL_CSV_OPTIONAL = ("capex", "period_months", "definitions_note", "source", "source_url", "notes", "is_illustrative")
 
 # --- default inputs for the pipeline ---------------------------------------
 DEFAULT_COMPANY_FILES = (
@@ -59,6 +63,7 @@ DEFAULT_FINANCIAL_FILES = (
 )
 DEFAULT_DISCLOSURE_FILES = (RAW_DIR / "disclosures.csv",)
 DEFAULT_EXTERNAL_FILES = (RAW_DIR / "external_indicators.csv",)
+DEFAULT_VERIFICATION_FILES = (RAW_DIR / "source_verification.csv",)
 
 # --- text shown in the app and README ---------------------------------------
 DISCLAIMER = (
@@ -76,4 +81,16 @@ LIMITATIONS = (
     "AI commentary can misread data or give plausible but unsupported explanations; every statement must be checked against the cited evidence.",
     "This project is not a substitute for professional credit analysis.",
     "A dashboard can create a false sense of certainty; always read the sources, reporting basis and data-quality notes.",
+    "Interest coverage uses accounting EBIT, not cash; it can look comfortable while operating or free cash flow is negative.",
+    "Debt is the aggregator's borrowings figure. Debt maturities, guarantees, contingent liabilities and cash are not modelled.",
+    "Reported revenue growth mixes price, volume, acquisitions and changes in consolidation scope; the tool does not separate them.",
+)
+
+# What this project must not claim (shown in the app and the README).
+CANNOT_CLAIM = (
+    "It does not predict which companies will default.",
+    "It does not estimate a probability of default.",
+    "It does not establish that any external event caused a change in a company's finances.",
+    "It does not produce validated credit-risk classifications or ratings.",
+    "Its findings from five cement companies do not generalise to all Indian listed companies.",
 )

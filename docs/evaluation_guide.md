@@ -7,7 +7,8 @@ The aim is to find out, with evidence, whether the AI commentary adds anything b
 1. Pick at least one company-year per company. Open the source statements.
 2. Recompute each ratio by hand from the source figures and compare with `v_ratios` / the dashboard.
 3. Record the check, for example in a table: company, year, ratio, hand value, tool value, match (Y/N), notes.
-4. `pytest` already checks that the SQL views and the pandas code agree and that unit conversion is correct. It cannot check that your **source data entry** is correct. That is your hand-check.
+4. Already done for part of the data: `docs/reconciliation_report.md` (independent recompute, 0 disagreements with the app) and `docs/source_verification_worksheet.md` (61 inputs vs filings, extracted text only). Extend `data/raw/source_verification.csv` for years not yet covered, then run `python scripts/make_verification_worksheet.py`.
+5. `pytest` already checks that the SQL views and the pandas code agree and that unit conversion is correct. It cannot check that your **source data entry** is correct. That is your hand-check.
 
 ## 2. Generate comparable commentary
 

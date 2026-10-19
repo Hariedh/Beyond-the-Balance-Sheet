@@ -9,6 +9,7 @@ PRAGMA foreign_keys = ON;
 
 DROP VIEW  IF EXISTS v_ratios;
 DROP VIEW  IF EXISTS v_fin;
+DROP TABLE IF EXISTS source_verification;
 DROP TABLE IF EXISTS validation_issues;
 DROP TABLE IF EXISTS flags;
 DROP TABLE IF EXISTS external_indicators;
@@ -51,6 +52,7 @@ CREATE TABLE financials_raw (
     current_liabilities    TEXT,
     operating_cash_flow    TEXT,
     cash_and_equivalents   TEXT,
+    capex                  TEXT,
     definitions_note       TEXT,
     source                 TEXT,
     source_url             TEXT,
@@ -80,6 +82,8 @@ CREATE TABLE financials (
     current_liabilities_cr  REAL,
     operating_cash_flow_cr  REAL,
     cash_cr                 REAL,
+    -- Capital expenditure as a POSITIVE cash outflow (INR crore). free cash flow = OCF - capex.
+    capex_cr                REAL,
     original_unit           TEXT    NOT NULL
         CHECK (original_unit IN ('rupees', 'thousands', 'lakhs', 'millions', 'crores')),
     -- Length of the reporting period. 12 normally; e.g. 15 after a year-end change.
@@ -108,7 +112,34 @@ CREATE TABLE disclosures (
     source_doc      TEXT    NOT NULL,
     page_ref        TEXT,
     source_url      TEXT,
+    publication_date TEXT,
+    related_metric  TEXT,
+    -- 'established' = the filing itself states / arithmetically shows the link to the metric;
+    -- 'possible_explanation' = a plausible link that the filing does NOT establish.
+    relationship    TEXT CHECK (relationship IN ('established', 'possible_explanation')),
     is_illustrative INTEGER NOT NULL DEFAULT 0 CHECK (is_illustrative IN (0, 1))
+);
+
+-- ---------------------------------------------------------------------------
+-- source_verification: loaded value vs. primary filing, per input and company-year
+-- ---------------------------------------------------------------------------
+CREATE TABLE source_verification (
+    verification_id  INTEGER PRIMARY KEY,
+    company_id       INTEGER NOT NULL REFERENCES companies (company_id),
+    financial_year   TEXT    NOT NULL,
+    basis            TEXT    NOT NULL,
+    item             TEXT    NOT NULL,
+    app_value_cr     REAL,
+    filing_value_cr  REAL,
+    difference_cr    REAL,
+    difference_pct   REAL,
+    status           TEXT    NOT NULL CHECK (status IN ('verified', 'approx', 'discrepancy', 'unverified')),
+    method           TEXT,
+    source_doc       TEXT    NOT NULL,
+    publication_date TEXT,
+    location         TEXT,
+    source_url       TEXT,
+    notes            TEXT
 );
 
 -- ---------------------------------------------------------------------------

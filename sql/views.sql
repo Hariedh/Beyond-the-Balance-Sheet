@@ -31,6 +31,7 @@ SELECT
     f.current_liabilities_cr,
     f.operating_cash_flow_cr,
     f.cash_cr,
+    f.capex_cr,
     f.original_unit,
     f.period_months,
     f.definitions_note,

@@ -25,7 +25,9 @@ def app(tmp_path, monkeypatch):
 def test_app_renders_without_exceptions(app):
     assert not app.exception, [e.value for e in app.exception]
     assert any("Beyond the Balance Sheet" in t.value for t in app.title)
-    assert len(app.metric) == 6
+    assert len(app.metric) == 9                    # six ratios + operating cash flow, capex, free cash flow
+    assert [m.label for m in app.metric][:6] == ["Interest coverage", "Debt-to-equity", "Current ratio",
+                                                  "OCF / debt", "Revenue growth", "EBIT margin"]
     # the default company is real data: no illustrative banner
     assert not any("ILLUSTRATIVE" in w.value for w in app.warning)
 

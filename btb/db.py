@@ -48,3 +48,12 @@ def split_sql_queries(text: str) -> dict[str, str]:
         elif current is not None:
             queries[current].append(line)
     return {k: "\n".join(v).strip() for k, v in queries.items()}
+
+
+def db_is_stale() -> bool:
+    """True if the database is missing or older than the SQL or raw-data files it was built from."""
+    if not config.DB_PATH.exists():
+        return True
+    built = config.DB_PATH.stat().st_mtime
+    watched = [*config.SQL_DIR.glob("*.sql"), *config.RAW_DIR.glob("*.csv")]
+    return any(f.stat().st_mtime > built for f in watched)

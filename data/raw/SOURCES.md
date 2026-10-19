@@ -7,7 +7,7 @@ Keep source files here exactly as obtained. Never edit a raw value to "fix" it; 
 | `financials_real.csv` | 26 company-years for 5 cement companies, consolidated, in INR crore | **Real data from secondary sources, collected 19 Oct 2026. Hand-check before treating as final** (see below) |
 | `companies_candidates.csv` | The five candidate companies | Candidate sample, not a proven comparable set |
 | `financials_demo_ILLUSTRATIVE.csv`, `companies_demo_ILLUSTRATIVE.csv` | Synthetic data for three fictional companies | Illustrative only, never real |
-| `disclosures.csv` | Short attributed excerpts from annual reports and filings | Empty: add with page references |
+| `disclosures.csv` | Short attributed excerpts from annual reports and filings | 5 entries from primary filings (publication date, section/page, established vs possible explanation); add more with page references |
 | `external_indicators.csv` | Dated external series (fuel, freight, interest rates, ...) | Empty: add with sources |
 
 ## Where the real numbers came from
@@ -19,6 +19,7 @@ Keep source files here exactly as obtained. Never edit a raw value to "fix" it; 
 | Revenue, operating profit, interest (finance costs), depreciation, equity capital, reserves, borrowings, cash from operations | [Screener.in](https://www.screener.in/) consolidated pages (standardised from company filings) | Secondary aggregator |
 | Current assets, current liabilities (FY2021-22 onward) | [stockanalysis.com](https://stockanalysis.com/) (S&P data) | Not available for FY2020-21: left blank |
 | Operating cash flow and total debt (cross-check) | stockanalysis.com | Used to validate Screener |
+| Capital expenditure (FY2021-22 onward) | stockanalysis.com cash-flow statement, line "Capital Expenditures" (S&P data) | Secondary source; may include acquisition-related additions; not reconciled to annual reports. Blank for FY2020-21 and for the 15-month Ambuja/ACC period |
 | Primary-filing spot checks | UltraTech audited consolidated results for FY2022-23 (filed 28 Apr 2023, BSE); Ambuja board release of 2 May 2023 | See below |
 
 ### Definitions (identical for every company)
@@ -35,7 +36,9 @@ Keep source files here exactly as obtained. Never edit a raw value to "fix" it; 
 3. Screener operating cash flow agrees with S&P (+/- 1%). **Two disagreements** (Ambuja and ACC FY2022-23, the 15-month period): both values are left blank rather than choosing one.
 4. Eleven comparisons against primary filings (UltraTech FY2021-22 and FY2022-23: revenue, finance costs, depreciation, current assets and liabilities, operating cash flow; Ambuja FY2022-23 revenue) match to rounding.
 
-Everything else is **not** verified against primary documents. Per the project brief, hand-check at least one ratio per company against its annual report before relying on the data.
+Every check is recorded in `financials_real_crosschecks.csv` (shown in the dashboard's verification panel).
+
+Everything else is **not** verified against primary documents. `python scripts/make_hand_check_sheet.py` writes a worksheet for doing so. Per the project brief, hand-check at least one ratio per company against its annual report before relying on the data.
 
 ## Comparability issues you must know about
 
@@ -65,3 +68,8 @@ One row = one company, one financial year, one reporting basis.
 2. Standalone vs consolidated applied consistently.
 3. Restated figures: prefer the latest restated comparatives and record that in `notes`.
 4. Hand-check at least one ratio per company against the source statements.
+
+
+## Primary-source verification
+
+`source_verification.csv` records 61 comparisons of loaded values with primary filings (UltraTech, Dalmia, ACC: FY2024-25; Shree and Ambuja: FY2024-25 and FY2025-26). Filing text was read through automated extraction, not visually in a PDF viewer. Four Ambuja values disagree with the filing by more than 1% (FY2024-25 operating cash flow, current assets, depreciation; FY2025-26 EBIT); the cause is not established and the loaded values were not altered. Lease liabilities were not located in the extracted statements, so total debt could not be compared like-for-like for four company-years. `external_indicators.csv` is still empty (optional).

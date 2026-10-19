@@ -181,12 +181,12 @@ def load_financials(conn: sqlite3.Connection, paths: Iterable[Path]) -> LoadRepo
             cur = conn.execute(
                 "INSERT INTO financials_raw (source_file, source_row, ticker, financial_year, basis, unit, "
                 "period_months, revenue, ebit, interest_expense, total_debt, total_equity, current_assets, "
-                "current_liabilities, operating_cash_flow, cash_and_equivalents, definitions_note, "
+                "current_liabilities, operating_cash_flow, cash_and_equivalents, capex, definitions_note, "
                 "source, source_url, notes, is_illustrative) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (path.name, src_row, row["ticker"], row["financial_year"], row["basis"], row["unit"],
                  row["period_months"],
-                 *[row[f] for f in config.NUMERIC_FIELDS],
+                 *[row[f] for f in config.ALL_NUMERIC_FIELDS],
                  row["definitions_note"], row["source"], row["source_url"], row["notes"],
                  row["is_illustrative"]),
             )
@@ -196,7 +196,7 @@ def load_financials(conn: sqlite3.Connection, paths: Iterable[Path]) -> LoadRepo
             fy_text = row["financial_year"].strip()
 
             # 2) structural checks -> reject
-            numeric_raw = {f: row[f] for f in config.NUMERIC_FIELDS}
+            numeric_raw = {f: row[f] for f in config.ALL_NUMERIC_FIELDS}
             all_blank = all(str(v).strip().lower() in MISSING_TOKENS for v in numeric_raw.values())
             if all_blank:
                 report.rows_blank_skipped += 1
@@ -261,13 +261,13 @@ def load_financials(conn: sqlite3.Connection, paths: Iterable[Path]) -> LoadRepo
             conn.execute(
                 "INSERT INTO financials (company_id, financial_year, basis, revenue_cr, ebit_cr, "
                 "interest_expense_cr, total_debt_cr, total_equity_cr, current_assets_cr, "
-                "current_liabilities_cr, operating_cash_flow_cr, cash_cr, original_unit, period_months, "
+                "current_liabilities_cr, operating_cash_flow_cr, cash_cr, capex_cr, original_unit, period_months, "
                 "definitions_note, source, source_url, notes, is_illustrative, raw_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (company_id, fy, basis, values["revenue"], values["ebit"], values["interest_expense"],
                  values["total_debt"], values["total_equity"], values["current_assets"],
                  values["current_liabilities"], values["operating_cash_flow"],
-                 values["cash_and_equivalents"], unit, period_months,
+                 values["cash_and_equivalents"], values["capex"], unit, period_months,
                  row["definitions_note"].strip() or None, row["source"].strip() or None,
                  row["source_url"].strip() or None, row["notes"].strip() or None,
                  _flag01(row["is_illustrative"]), raw_id),
@@ -304,12 +304,23 @@ def load_disclosures(conn: sqlite3.Connection, paths: Iterable[Path]) -> LoadRep
                                  "Keep excerpts short and paraphrase where possible.",
                                  ticker=ticker, source_file=path.name)
             fy = normalise_fy(row.get("financial_year", "")) if row.get("financial_year", "").strip() else None
+            relationship = row.get("relationship", "").strip().lower() or None
+            if relationship not in (None, "established", "possible_explanation"):
+                report.add_issue("warning", "invalid_relationship",
+                                 f"Row {i + 2}: relationship '{relationship}' is not 'established' or "
+                                 "'possible_explanation'; stored as possible_explanation (the safer reading).",
+                                 ticker=ticker, source_file=path.name)
+                relationship = "possible_explanation"
             conn.execute(
                 "INSERT INTO disclosures (company_id, financial_year, topic, excerpt, source_doc, page_ref, "
-                "source_url, is_illustrative) VALUES (?,?,?,?,?,?,?,?)",
+                "source_url, publication_date, related_metric, relationship, is_illustrative) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (tickers[ticker], fy, row.get("topic", "").strip() or None, excerpt,
                  row["source_doc"].strip(), row.get("page_ref", "").strip() or None,
-                 row.get("source_url", "").strip() or None, _flag01(row.get("is_illustrative"))),
+                 row.get("source_url", "").strip() or None,
+                 row.get("publication_date", "").strip() or None,
+                 row.get("related_metric", "").strip() or None, relationship,
+                 _flag01(row.get("is_illustrative"))),
             )
             report.rows_loaded += 1
     conn.commit()
@@ -343,5 +354,49 @@ def load_external(conn: sqlite3.Connection, paths: Iterable[Path]) -> LoadReport
                  _flag01(row.get("is_illustrative"))),
             )
             report.rows_loaded += 1
+    conn.commit()
+    return report
+
+
+# --- source verification ------------------------------------------------------
+VERIFICATION_STATUSES = ("verified", "approx", "discrepancy", "unverified")
+
+
+def load_source_verification(conn: sqlite3.Connection, paths: Iterable[Path]) -> LoadReport:
+    """Load loaded-value-vs-filing comparisons. A discrepancy is surfaced as a data-quality warning."""
+    report = LoadReport()
+    tickers = {r["ticker"]: r["company_id"] for r in conn.execute("SELECT ticker, company_id FROM companies")}
+    for path in map(Path, paths):
+        df = _read_csv(path, ("ticker", "financial_year", "item", "status", "source_doc"), report)
+        if df is None:
+            continue
+        for i, row in df.iterrows():
+            if not any(str(v).strip() for v in row.values):
+                continue
+            report.rows_read += 1
+            ticker = row["ticker"].strip().upper()
+            fy = normalise_fy(row["financial_year"])
+            status = row["status"].strip().lower()
+            if ticker not in tickers or fy is None or status not in VERIFICATION_STATUSES or not row["item"].strip():
+                report.rows_rejected += 1
+                report.add_issue("error", "verification_rejected",
+                                 f"Row {i + 2}: needs a known ticker, a valid financial year, an item and a status "
+                                 f"in {VERIFICATION_STATUSES}.", ticker=ticker or None, source_file=path.name)
+                continue
+            vals = [parse_number(row.get(c, ""))[0] for c in ("app_value_cr", "filing_value_cr", "difference_cr", "difference_pct")]
+            conn.execute(
+                "INSERT INTO source_verification (company_id, financial_year, basis, item, app_value_cr, "
+                "filing_value_cr, difference_cr, difference_pct, status, method, source_doc, publication_date, "
+                "location, source_url, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (tickers[ticker], fy, (normalise_basis(row.get("basis", "")) or "consolidated"), row["item"].strip(),
+                 *vals, status, row.get("method", "").strip() or None, row["source_doc"].strip(),
+                 row.get("publication_date", "").strip() or None, row.get("location", "").strip() or None,
+                 row.get("source_url", "").strip() or None, row.get("notes", "").strip() or None))
+            report.rows_loaded += 1
+            if status == "discrepancy":
+                report.add_issue("warning", "source_discrepancy",
+                                 f"{row['item']}: loaded {vals[0]} vs filing {vals[1]} (difference {vals[3]}%). "
+                                 "Unresolved; the loaded value was not changed.",
+                                 ticker=ticker, financial_year=fy, field_name=row["item"].strip(), source_file=path.name)
     conn.commit()
     return report

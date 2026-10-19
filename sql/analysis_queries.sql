@@ -41,11 +41,14 @@ GROUP BY industry, financial_year, basis
 ORDER BY industry, financial_year;
 
 -- name: debt_up_ebit_down_sql
--- SQL version of the DEBT_UP_EBIT_DOWN rule using LAG(); the Python rules
--- engine implements the same logic and the tests compare the two.
+-- SQL version of the DEBT_UP_EBIT_DOWN rule using LAG(); the Python rules engine implements the
+-- same logic and the tests compare the two. Conditions: the prior row is the directly preceding
+-- financial year, both periods are 12 months, debt rose by at least 10% of prior debt (change the
+-- 1.10 freely) and EBIT fell.
 WITH x AS (
-    SELECT ticker, basis, financial_year, fy_start, total_debt_cr, ebit_cr,
+    SELECT ticker, basis, financial_year, fy_start, period_months, total_debt_cr, ebit_cr,
            LAG(fy_start)      OVER w AS prev_fy,
+           LAG(period_months) OVER w AS prev_months,
            LAG(total_debt_cr) OVER w AS prev_debt,
            LAG(ebit_cr)       OVER w AS prev_ebit
     FROM v_fin
@@ -56,7 +59,9 @@ SELECT ticker, basis, financial_year,
        prev_ebit AS ebit_prev_cr, ebit_cr
 FROM x
 WHERE prev_fy = fy_start - 1
-  AND total_debt_cr > prev_debt
+  AND period_months = 12 AND prev_months = 12
+  AND prev_debt > 0
+  AND total_debt_cr >= prev_debt * 1.10
   AND ebit_cr < prev_ebit
 ORDER BY ticker, financial_year;
 

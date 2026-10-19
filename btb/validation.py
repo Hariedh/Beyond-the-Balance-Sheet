@@ -20,6 +20,7 @@ FIELD_COLS = {
     "current_liabilities": "current_liabilities_cr",
     "operating_cash_flow": "operating_cash_flow_cr",
     "cash_and_equivalents": "cash_cr",
+    "capex": "capex_cr",
 }
 
 # Illustrative plausibility bands used only to surface possible unit mistakes.
@@ -47,7 +48,7 @@ def validate_financials(fin: pd.DataFrame) -> list[dict]:
         # missing values
         for name, col in FIELD_COLS.items():
             if pd.isna(r[col]):
-                sev = "info" if name == "cash_and_equivalents" else "warning"
+                sev = "info" if name in ("cash_and_equivalents", "capex") else "warning"
                 add(sev, "missing_value", r, f"{name} is missing (kept as NULL).", name)
 
         if r["period_months"] != 12:
@@ -72,6 +73,9 @@ def validate_financials(fin: pd.DataFrame) -> list[dict]:
         if pd.notna(r["current_liabilities_cr"]) and r["current_liabilities_cr"] <= 0:
             add("warning", "nonpositive_current_liabilities", r,
                 "Current liabilities are zero or negative.", "current_liabilities")
+        if pd.notna(r["capex_cr"]) and r["capex_cr"] < 0:
+            add("warning", "negative_capex", r,
+                "Capital expenditure is negative; enter capex as a positive cash outflow.", "capex")
         if pd.notna(r["cash_cr"]) and pd.notna(r["current_assets_cr"]) and r["cash_cr"] > r["current_assets_cr"]:
             add("warning", "cash_exceeds_current_assets", r,
                 "Cash exceeds current assets; check definitions or units.", "cash_and_equivalents")

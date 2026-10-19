@@ -15,7 +15,8 @@ SOURCES (secondary aggregators; collected 19 Oct 2026; NOT yet hand-checked agai
   FY2022-23 (audited results, 28 Apr 2023) and Ambuja's 15-month period (board release, 2 May 2023).
 
 DEFINITIONS USED (identical for every company)
-  EBIT            = operating profit - depreciation        (other income excluded)
+  EBIT            = operating profit - depreciation        (other income and exceptional items excluded; verified
+                    against filings for the years in source_verification.csv)
   interest        = finance costs as shown by Screener
   total debt      = Screener "Borrowings" (agrees with S&P total debt; appears to include leases)
   total equity    = equity capital + reserves              (owners' equity; excludes non-controlling interests)
@@ -35,6 +36,7 @@ import sys
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "data" / "raw" / "financials_real.csv"
+CHECKS_OUT = OUT.with_name("financials_real_crosschecks.csv")
 
 # Screener rows: FY -> (period_months, sales, op_profit, other_income, interest, depreciation, pbt,
 #                       equity_capital, reserves, borrowings, cash_from_operations)   [Rs crore]
@@ -141,8 +143,24 @@ COMPANY_NOTES = {
     "DALBHARAT": "Equity rises sharply in FY2021-22: check for restructuring or reclassification in the annual report.",
 }
 
+# Capital expenditure, stockanalysis.com cash-flow statement line "Capital Expenditures" (S&P data),
+# Rs million, shown there as a negative outflow; stored here as a positive outflow.
+# Page covers FY2021-22 to FY2025-26 only. NOT loaded for Ambuja/ACC FY2022-23: that 15-month period's
+# cash-flow figures from the two sources disagree, so capex for it is left blank as well.
+CAPEX_MN = {
+    "ULTRACEMCO": {"FY2021-22": 56134, "FY2022-23": 62001, "FY2023-24": 90056, "FY2024-25": 91293, "FY2025-26": 96778},
+    "AMBUJACEM": {"FY2023-24": 44825, "FY2024-25": 86871, "FY2025-26": 63443},
+    "SHREECEM": {"FY2021-22": 22158, "FY2022-23": 32914, "FY2023-24": 31403, "FY2024-25": 40934, "FY2025-26": 18656},
+    "DALBHARAT": {"FY2021-22": 17690, "FY2022-23": 27090, "FY2023-24": 28270, "FY2024-25": 26640, "FY2025-26": 20560},
+    "ACC": {"FY2023-24": 13948, "FY2024-25": 19684, "FY2025-26": 14272},
+}
+CAPEX_NOTE = ("Capex = S&P 'Capital Expenditures' line (secondary source), recorded as a positive outflow. Checked against the "
+              "filing's cash-flow statement only where data/raw/source_verification.csv has a capex row; otherwise unverified. "
+              "Free cash flow = operating cash flow - capex.")
+
 DEFINITIONS = (
-    "EBIT = operating profit - depreciation (other income excluded). Interest = finance costs (Screener). "
+    "EBIT = revenue - (total expenses - finance costs) = operating profit after depreciation, before other income and "
+    "exceptional items (verified against filings for the checked years). Interest = finance costs (Screener). "
     "Total debt = Screener borrowings (matches S&P total debt; appears to include lease liabilities). "
     "Total equity = equity capital + reserves (owners' equity, excludes non-controlling interests). "
     "Current assets/liabilities from S&P via stockanalysis.com. Cash left blank (inconsistent aggregator definitions)."
@@ -153,7 +171,7 @@ SOURCE = ("Screener.in consolidated financials (P&L, borrowings, equity, cash fl
 
 HEADER = ["ticker", "financial_year", "basis", "unit", "period_months", "revenue", "ebit", "interest_expense",
           "total_debt", "total_equity", "current_assets", "current_liabilities", "operating_cash_flow",
-          "cash_and_equivalents", "definitions_note", "source", "source_url", "notes", "is_illustrative"]
+          "cash_and_equivalents", "capex", "definitions_note", "source", "source_url", "notes", "is_illustrative"]
 
 
 def close(a: float, b: float, rel: float, absolute: float) -> bool:
@@ -222,8 +240,12 @@ def main() -> int:
                 notes.append(f"{months}-month reporting period (Jan 2022 to Mar 2023) after the year-end change; "
                              "confirmed in the company's board release of 2 May 2023. Not comparable with 12-month years.")
 
+            capex_mn = CAPEX_MN.get(ticker, {}).get(fy)
+            capex = capex_mn / 10 if capex_mn is not None else None
+            if capex is not None:
+                notes.append(CAPEX_NOTE)
             rows.append([ticker, fy, "consolidated", "crores", months, fmt(sales), fmt(op - dep), fmt(interest),
-                         fmt(borrow), fmt(eq_cap + reserves), fmt(ca), fmt(cl), fmt(ocf), "",
+                         fmt(borrow), fmt(eq_cap + reserves), fmt(ca), fmt(cl), fmt(ocf), "", fmt(capex),
                          DEFINITIONS, SOURCE, f"{s_url}; {sa_url}" if sa else s_url, " ".join(notes), 0])
 
     print(f"{'ticker':11s}{'year':11s}{'check':26s}{'ok':5s}detail")
@@ -244,6 +266,13 @@ def main() -> int:
         w.writerow(HEADER)
         w.writerows(rows)
     print(f"Wrote {OUT}")
+    # Machine-readable record of every automated check, shown in the dashboard's verification panel.
+    with open(CHECKS_OUT, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["ticker", "financial_year", "check", "passed", "detail", "against_primary_filing"])
+        for t, fy, name, ok, detail in report:
+            w.writerow([t, fy, name, int(ok), detail, int(name.startswith("PRIMARY"))])
+    print(f"Wrote {CHECKS_OUT}")
     return 0
 
 
