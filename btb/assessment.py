@@ -25,48 +25,56 @@ from .verification import input_status, worst_status
 # rule -> indicator text, formula, why it matters, follow-up, history column, peer column, inputs, kind
 RULE_INFO: dict[str, dict] = {
     "LOW_INTEREST_COVERAGE": dict(
+        rationale='1.5x is an illustrative analyst setting, not a calibrated or validated credit standard. It is adjustable in the sidebar; the sensitivity table shows how many flags move with it.',
         indicator="Interest coverage", kind="threshold_breach", col="interest_coverage", fmt="x", peer="interest_coverage",
         inputs=["ebit", "interest_expense"],
         formula="EBIT / interest expense (finance costs). EBIT = operating profit after depreciation, before other income and exceptional items.",
         why="Shows how many times operating profit covers interest, i.e. the cushion if profit falls. It uses accounting profit, not cash.",
         followup="What drove EBIT and finance costs? What is the maturity and rate profile of the debt (not in this dataset)?"),
     "NEGATIVE_OPERATING_CASH_FLOW": dict(
+        rationale='Zero is the natural sign boundary (cash in versus cash out). It is not a calibrated distress level.',
         indicator="Operating cash flow", kind="threshold_breach", col="operating_cash_flow_cr", fmt="cr", peer=None,
         inputs=["operating_cash_flow"],
         formula="Net cash from operating activities (cash-flow statement).",
         why="A company can report profit while consuming cash (for example a working-capital build-up). Negative operating cash flow has to be funded from cash, debt or equity.",
         followup="Which working-capital items, taxes paid or one-offs explain the cash shortfall? See the cash-flow statement notes."),
     "DEBT_UP_EBIT_DOWN": dict(
+        rationale='A 10% rise in debt is an illustrative materiality setting to avoid flagging trivial changes; it is adjustable and not empirically derived.',
         indicator="Debt up while EBIT down", kind="deterioration", col="total_debt_cr", fmt="cr", peer=None,
         inputs=["total_debt", "ebit"],
         formula="Total debt rose by at least the materiality share of prior-year debt AND EBIT fell, between two directly consecutive 12-month years.",
         why="Rising borrowing alongside falling operating profit can shrink headroom, unless the debt funds capacity that has not yet earned a return.",
         followup="What was the new debt used for (capex, acquisition, working capital) and when is it expected to contribute earnings?"),
     "LOW_CURRENT_RATIO": dict(
+        rationale='1.0x is the accounting break-even between current assets and liabilities, not a distress standard; several cement business models sit below it structurally. Adjustable.',
         indicator="Current ratio", kind="threshold_breach", col="current_ratio", fmt="x", peer="current_ratio",
         inputs=["current_assets", "current_liabilities"],
         formula="Current assets / current liabilities.",
         why="A short-term liquidity cushion. Some business models run below 1 structurally, so compare with the company's own history and peers.",
         followup="Is the low ratio structural? What undrawn facilities exist and what are the current liabilities (payables, dealer deposits, debt)?"),
     "SUSTAINED_EBIT_MARGIN_DECLINE": dict(
+        rationale='Two directly consecutive declines is the smallest run that is not a single observation; N is an illustrative, adjustable setting, not a statistically tested one.',
         indicator="EBIT margin trend", kind="deterioration", col="ebit_margin", fmt="pct", peer="ebit_margin",
         inputs=["ebit", "revenue"],
         formula="EBIT / revenue; flagged when it fell in each of N directly consecutive comparable years.",
-        why="A margin that keeps falling points to cost or price pressure rather than a one-off.",
+        why="A margin that keeps falling is less likely to be a one-off, but the reason (cost, price, mix or scope) has to be established from disclosures; the ratio alone does not show it.",
         followup="Which cost lines (energy, freight, raw materials) or price / mix changes does the management discussion cite? Is it consistent with the figures?"),
     "SUSTAINED_REVENUE_DECLINE": dict(
+        rationale='Two directly consecutive declines is the smallest run that is not a single observation; N is an illustrative, adjustable setting, not a statistically tested one.',
         indicator="Revenue trend", kind="deterioration", col="revenue_cr", fmt="cr", peer=None,
         inputs=["revenue"],
         formula="Revenue growth below zero in each of N directly consecutive comparable years.",
         why="Falling sales reduce the base that covers fixed costs and interest.",
         followup="Is the fall volume, price or a scope change (divestment, demerger)?"),
     "NEGATIVE_FREE_CASH_FLOW": dict(
+        rationale='Zero is the natural sign boundary. It is informational only, not a distress signal, because negative free cash flow is common while companies expand.',
         indicator="Free cash flow", kind="threshold_breach", col="free_cash_flow_cr", fmt="cr", peer="fcf_margin",
         inputs=["operating_cash_flow", "capex"],
         formula="Operating cash flow - capex (purchase of property, plant and equipment).",
         why="Cash left after investment. Negative free cash flow is common during capacity expansion and is not distress by itself; it shows reliance on cash, debt or equity.",
         followup="Was the capex growth or maintenance? How was the shortfall financed?"),
     "NONPOSITIVE_EQUITY": dict(
+        rationale='Zero is the natural sign boundary (accounting identity), not a calibrated level.',
         indicator="Equity", kind="threshold_breach", col="total_equity_cr", fmt="cr", peer=None,
         inputs=["total_equity"],
         formula="Equity share capital + other equity (excluding non-controlling interests).",
@@ -109,7 +117,7 @@ def explain_flags(flags: pd.DataFrame, m_all: pd.DataFrame, t: Thresholds, ver: 
                   pers: pd.DataFrame | None = None) -> pd.DataFrame:
     """One row per fired flag with everything an analyst needs to judge it."""
     cols = ["Year", "Indicator", "Observed", "Threshold", "Formula", "Why it matters", "Persistence", "History",
-            "Peer context", "Data quality", "Follow-up", "rule_id", "type"]
+            "Peer context", "Data quality", "Follow-up", "Threshold rationale", "rule_id", "type"]
     if flags.empty:
         return pd.DataFrame(columns=cols)
     m_all = with_peer_metrics(m_all)
@@ -128,7 +136,7 @@ def explain_flags(flags: pd.DataFrame, m_all: pd.DataFrame, t: Thresholds, ver: 
             persist = explain_status(p["status"], int(p["streak"]), t)
         peer = "not applicable for this indicator"
         if info["peer"]:
-            peer = peer_context(m_all, f.ticker, f.basis, f.financial_year, info["peer"], bool(cur["is_illustrative"]))["text"]
+            peer = peer_context(m_all, f.ticker, f.basis, f.financial_year, info["peer"], bool(cur["is_illustrative"]), ver)["text"]
         dq = []
         missing = [i for i in info["inputs"] if i in INPUT_COLS and pd.isna(cur[INPUT_COLS[i]])]
         if missing:
@@ -141,6 +149,7 @@ def explain_flags(flags: pd.DataFrame, m_all: pd.DataFrame, t: Thresholds, ver: 
             "Threshold": f.threshold_used, "Formula": info["formula"], "Why it matters": info["why"],
             "Persistence": persist, "History": _history(co, info["col"], int(cur["fy_start"]), info["fmt"]),
             "Peer context": peer, "Data quality": "; ".join(dq), "Follow-up": info["followup"],
+            "Threshold rationale": info["rationale"],
             "rule_id": f.rule_id, "type": info["kind"],
         })
     return pd.DataFrame(rows, columns=cols)

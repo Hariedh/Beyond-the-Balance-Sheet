@@ -115,8 +115,9 @@ CREATE TABLE disclosures (
     publication_date TEXT,
     related_metric  TEXT,
     -- 'established' = the filing itself states / arithmetically shows the link to the metric;
-    -- 'possible_explanation' = a plausible link that the filing does NOT establish.
-    relationship    TEXT CHECK (relationship IN ('established', 'possible_explanation')),
+    -- 'possible_explanation' = a plausible link that the filing does NOT establish;
+    -- 'unresolved' = evidence exists but conflicts or is incomplete; 'not_assessed' = nobody has checked.
+    relationship    TEXT CHECK (relationship IN ('established', 'possible_explanation', 'unresolved', 'not_assessed')),
     is_illustrative INTEGER NOT NULL DEFAULT 0 CHECK (is_illustrative IN (0, 1))
 );
 
@@ -139,7 +140,8 @@ CREATE TABLE source_verification (
     publication_date TEXT,
     location         TEXT,
     source_url       TEXT,
-    notes            TEXT
+    notes            TEXT,
+    date_checked     TEXT
 );
 
 -- ---------------------------------------------------------------------------

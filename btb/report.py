@@ -70,15 +70,22 @@ def build_report(*, ticker: str, name: str, basis: str, m: pd.DataFrame, fy_from
         add("4. Evidence and peer context", f"Peer {r.ticker} ({r.status})",
             "EBIT margin " + _fmt_stress("pct", r.ebit_margin) + "; D/E " + _fmt_stress("x", r.debt_to_equity) +
             "; coverage " + _fmt_stress("x", r.interest_coverage), "observed (loaded data)")
+    for r in peer.itertuples():
+        d = r._asdict()
+        for c in [k[4:] for k in d if k.startswith("st__")]:
+            if d[f"st__{c}"] != "comparable":
+                add("4. Evidence and peer context", f"Comparability: {r.ticker}, {c}", d[f"st__{c}"],
+                    "unverified" if d[f"st__{c}"] == "unverified" else "limitation", d[f"why__{c}"])
     for r in peer_med.itertuples():
+        grp = getattr(r, "n_groups", None)
         add("4. Evidence and peer context", f"Comparable-peer median: {r.metric}", "n/a" if pd.isna(r.median) else round(float(r.median), 4),
-            "observed (loaded data)", f"n = {r.n}")
+            "observed (loaded data)", f"n = {r.n}" + (f", {grp} independent corporate group(s); Ambuja and ACC count as one group" if grp is not None else ""))
     if disclosures.empty:
         add("4. Evidence and peer context", "Company disclosures", "none loaded for this company and period", "limitation",
             "Without a documented source the tool cannot say why a metric moved.")
     for d in disclosures.itertuples():
         add("4. Evidence and peer context", f"Disclosure ({d.financial_year}): {d.topic}", d.excerpt,
-            "checked vs filing" if d.relationship == "established" else "hypothesis",
+            {"established": "checked vs filing", "possible_explanation": "hypothesis"}.get(d.relationship, "unverified"),
             f"{d.source_doc}; {d.page_ref}; published {d.publication_date}; related metric: {d.related_metric}; "
             f"relationship: {d.relationship}")
 

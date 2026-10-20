@@ -361,3 +361,165 @@ def test_report_sections_and_basis_labels(run):
                                               "hypothesis", "scenario (not forecast)", "limitation"}
     stress_rows = rep[rep["section"].str.startswith("5")]
     assert (stress_rows["basis_of_statement"] != "observed (loaded data)").all()
+
+
+# ---------------- second-round audit: stress edge cases, rationale, threshold sensitivity ----------------
+def test_stress_missing_ocf_gives_no_fcf_but_keeps_ebit_and_coverage():
+    r = stress_test({**BASE, "operating_cash_flow_cr": None}, StressInputs(revenue_decline=0.1))
+    assert r["available"] and "fcf" not in r["scenario"] and "ocf" not in r["scenario"]
+    assert r["scenario"]["interest_coverage"] == pytest.approx(0.9 * 200 / 50)
+    assert any("Free cash flow is not estimated" in n for n in r["notes"])
+
+
+def test_stress_extreme_valid_inputs_do_not_crash_and_stay_finite():
+    r = stress_test(BASE, StressInputs(revenue_decline=0.99, margin_decline_pp=0.10, fixed_cost_share=1.0))
+    assert r["available"] and math.isfinite(r["scenario"]["ebit"]) and r["scenario"]["ebit"] < 0
+    assert r["scenario"]["interest_coverage"] < 0
+
+
+def test_stress_percent_and_percentage_point_inputs_are_different():
+    pct = stress_test(BASE, StressInputs(revenue_decline=0.02))["scenario"]["ebit"]          # revenue -2%
+    pp = stress_test(BASE, StressInputs(margin_decline_pp=0.02))["scenario"]["ebit"]         # margin -2 points
+    assert pct == pytest.approx(200 * 0.98)            # EBIT scales with revenue at constant margin
+    assert pp == pytest.approx(200 - 0.02 * 1000)      # exactly 2% of revenue removed
+
+
+def test_stress_assumption_text_states_capex_fixed_and_unmodelled_items():
+    text = " ".join(stress_test(BASE, StressInputs(revenue_decline=0.1))["assumptions"]).lower()
+    for word in ("capex", "fixed", "taxes", "working capital", "refinancing", "not a cash-flow forecast"):
+        assert word in text
+    labels = " ".join(stress_table(stress_test(BASE, StressInputs(revenue_decline=0.1)))["Metric"])
+    assert "simplified" in labels
+
+
+def test_every_rule_has_threshold_rationale_that_disclaims_calibration():
+    from btb.assessment import RULE_INFO
+    for rid, info in RULE_INFO.items():
+        text = info["rationale"].lower()
+        assert " not " in f" {text} ", rid                       # each says what the threshold is NOT
+        assert "proven" not in text and "empirically validated by" not in text, rid
+
+
+def test_threshold_change_changes_flags_and_boundary_is_strict(run):
+    from btb.flags import sensitivity_table
+    rows = [row("AAA", "FY2024-25", ebit="150", intr="100", ca="400", cl="410")]
+    m = metrics(run, rows)
+    base = evaluate_flags(m, Thresholds(interest_coverage_min=1.5))
+    assert "LOW_INTEREST_COVERAGE" not in set(base.rule_id)          # exactly 1.5 is not below 1.5
+    up = evaluate_flags(m, Thresholds(interest_coverage_min=1.6))
+    assert "LOW_INTEREST_COVERAGE" in set(up.rule_id)
+    s = sensitivity_table(m, Thresholds())
+    cr = s[(s.parameter == "current_ratio_min")].set_index("value")["flagged_company_years"]
+    assert cr[1.0] == 1 and cr[0.8] == 0                                # current ratio 0.976
+
+
+# ---------------- regression tests on the shipped real data ----------------
+@pytest.fixture(scope="module")
+def real_db(tmp_path_factory):
+    from btb.pipeline import run_pipeline
+    db = tmp_path_factory.mktemp("real") / "real.sqlite"
+    run_pipeline(db_path=db, export_dir=None)
+    return db
+
+
+def _real_metrics(db):
+    conn = connect(db)
+    try:
+        m = compute_metrics(load_fin(conn))
+    finally:
+        conn.close()
+    return m[m.is_illustrative == 0]
+
+
+def test_real_data_ambuja_fy26_ebit_correction_is_applied_and_logged(real_db):
+    import csv
+    m = _real_metrics(real_db)
+    ebit = float(m[(m.ticker == "AMBUJACEM") & (m.financial_year == "FY2025-26")].iloc[0]["ebit_cr"])
+    assert ebit == pytest.approx(2968.53)
+    log = list(csv.DictReader(open(config.RAW_DIR / "corrections_log.csv", encoding="utf-8")))
+    c = [r for r in log if r["ticker"] == "AMBUJACEM" and r["field"] == "ebit"]
+    assert c and float(c[0]["original_value_cr"]) == 3007 and float(c[0]["revised_value_cr"]) == 2968.53
+    assert c[0]["source_url"].startswith("https://") and c[0]["date_checked"]
+
+
+def test_real_data_15_month_periods_excluded_from_yoy_and_peer_medians(real_db):
+    m = _real_metrics(real_db)
+    for t in ("AMBUJACEM", "ACC"):
+        r = m[(m.ticker == t) & (m.financial_year == "FY2022-23")].iloc[0]
+        assert int(r["period_months"]) == 15 and pd.isna(r["revenue_growth"])
+        nxt = m[(m.ticker == t) & (m.financial_year == "FY2023-24")].iloc[0]
+        assert pd.isna(nxt["revenue_growth"])                 # prior year is the 15-month period
+    tab = peer_table(m, "consolidated", "FY2022-23", False)
+    assert set(tab[~tab.comparable].ticker) == {"AMBUJACEM", "ACC"}
+    med = peer_medians(tab).set_index("metric")
+    assert med.loc["ebit_margin", "n"] == 3
+
+
+def test_real_data_unverified_inputs_are_never_zero(real_db):
+    m = _real_metrics(real_db)
+    for t in ("AMBUJACEM", "ACC"):
+        r = m[(m.ticker == t) & (m.financial_year == "FY2022-23")].iloc[0]
+        assert pd.isna(r["operating_cash_flow_cr"]) and pd.isna(r["ocf_to_debt"])
+
+
+def test_real_data_verification_statuses_and_dates(real_db):
+    conn = connect(real_db)
+    try:
+        ver = pd.read_sql_query("SELECT v.*, c.ticker FROM source_verification v JOIN companies c USING (company_id)", conn)
+    finally:
+        conn.close()
+    assert set(ver.status) <= {"verified", "approx", "discrepancy", "unverified"}
+    assert ver.date_checked.notna().all() and ver.source_url.notna().all()
+    disc = ver[ver.status == "discrepancy"]
+    assert set(disc.ticker) == {"AMBUJACEM"} and set(disc.financial_year) == {"FY2024-25"}
+    # UltraTech debt incl. leases is now matched against the filing
+    ut = ver[(ver.ticker == "ULTRACEMCO") & (ver["item"] == "total_debt")]
+    assert set(ut.status) == {"verified"}
+    # lease-ambiguous debt rows stay unverified rather than being reported as matching
+    amb = ver[(ver.ticker == "AMBUJACEM") & (ver["item"] == "total_debt")]
+    assert set(amb.status) == {"unverified"}
+
+
+def test_real_data_every_disclosure_is_classified_and_sourced(real_db):
+    conn = connect(real_db)
+    try:
+        d = pd.read_sql_query("SELECT * FROM disclosures", conn)
+        ext = pd.read_sql_query("SELECT * FROM external_indicators", conn)
+    finally:
+        conn.close()
+    assert len(d) >= 9 and d.relationship.isin(["established", "possible_explanation", "unresolved", "not_assessed"]).all()
+    assert d.source_url.notna().all() and d.publication_date.notna().all() and d.page_ref.notna().all()
+    assert ext.empty                                           # optional file stays empty; nothing was invented
+
+
+def test_disclosure_relationship_blank_is_not_assessed_and_invalid_is_safe(tmp_path, tmp_inputs):
+    from btb.pipeline import run_pipeline
+    from tests.conftest import write_csv
+    c, f = tmp_inputs(CO[:1], [row("AAA", "FY2024-25")])
+    hdr = ["ticker", "financial_year", "topic", "excerpt", "source_doc", "page_ref", "relationship"]
+    d = write_csv(tmp_path / "d.csv", hdr, [["AAA", "FY2024-25", "t1", "blank", "doc", "p1", ""],
+                                             ["AAA", "FY2024-25", "t2", "bad", "doc", "p2", "caused_it"],
+                                             ["AAA", "FY2024-25", "t3", "ok", "doc", "p3", "unresolved"]])
+    db = tmp_path / "d.sqlite"
+    s = run_pipeline(db_path=db, company_files=[c], financial_files=[f], disclosure_files=[d], external_files=[],
+                     verification_files=[], export_dir=None)
+    conn = connect(db)
+    rel = [r[0] for r in conn.execute("SELECT relationship FROM disclosures ORDER BY disclosure_id")]
+    conn.close()
+    assert rel == ["not_assessed", "possible_explanation", "unresolved"] and s["issues_warning"] >= 1
+
+
+def test_peer_notes_disclose_debt_definition_restatement_and_case_study_scope():
+    from btb.peers import COMPARABILITY_NOTES
+    text = " ".join(COMPARABILITY_NOTES).lower()
+    for word in ("lease", "restated", "five-company case study", "does not support general conclusions"):
+        assert word in text
+
+
+def test_independent_stdlib_recomputation_agrees_with_sql_and_pandas():
+    """scripts/audit_recalc.py recomputes every ratio with plain Python and compares with v_ratios and btb.metrics."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("audit_recalc", config.ROOT / "scripts" / "audit_recalc.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.main() == 0

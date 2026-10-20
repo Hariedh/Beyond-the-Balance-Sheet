@@ -17,7 +17,8 @@ With f = 0 every cost is variable, so a pure revenue shock leaves the EBIT margi
 Held constant: interest expense, capex and debt (no repricing, refinancing or deleveraging).
 Free cash flow is estimated only when operating cash flow and capex are both known, and ONLY under
 this explicit assumption: operating cash flow falls by the full shortfall in EBIT (pre-tax; no tax
-shield, no working-capital release, no change in other income). Real outcomes will differ.
+shield, no working-capital change, no change in interest, other income or financing). Capex is held fixed.
+Real outcomes will differ. All outputs are illustrative scenario estimates.
 """
 from __future__ import annotations
 
@@ -104,7 +105,10 @@ def stress_test(row, s: StressInputs, coverage_threshold: float = 1.5) -> dict:
         ("Constant EBIT margin under a pure revenue shock (all costs variable)" if f == 0 else
          f"{f:.0%} of the cost base is fixed and {1 - f:.0%} varies with revenue (operating leverage)"),
         "Interest expense, capex and debt are held at their reported levels",
-        "Free cash flow: operating cash flow falls by the full EBIT shortfall (pre-tax; no tax shield, no working-capital change)",
+        "Capex is held FIXED at its reported level (no cut in spending in response to the shock)",
+        "Operating cash flow and free cash flow are a SIMPLIFIED estimate: operating cash flow is assumed to fall by exactly the "
+        "shortfall in EBIT. Taxes, working capital, changes in interest or other income, dividends, refinancing and other "
+        "financing actions are NOT modelled, so this is not a cash-flow forecast",
         "Not a forecast, a probability or a credit rating: a mechanical what-if on reported figures",
     ]
     return out
@@ -120,7 +124,7 @@ def stress_table(result: dict) -> pd.DataFrame:
             ("EBIT margin", b["ebit_margin"], s["ebit_margin"], "pct"),
             ("Interest coverage (x)", b["interest_coverage"], s["interest_coverage"], "x")]
     if "fcf" in b:
-        rows += [("Operating cash flow (INR crore)", b["ocf"], s["ocf"], "cr"),
-                 ("Free cash flow (INR crore)", b["fcf"], s["fcf"], "cr")]
+        rows += [("Operating cash flow, simplified (INR crore)", b["ocf"], s["ocf"], "cr"),
+                 ("Free cash flow, simplified (INR crore)", b["fcf"], s["fcf"], "cr")]
     return pd.DataFrame([{"Metric": n, "Baseline": x, "Scenario": y,
                           "Change": None if x is None or y is None else y - x, "kind": k} for n, x, y, k in rows])

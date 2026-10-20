@@ -33,7 +33,7 @@ Number formats accepted: `1,234.5`, `-50`, `(1,234.5)` (accounting negative). Bl
 
 ## Input CSV: disclosures
 
-`ticker`, `excerpt`, `source_doc` (required); `financial_year`, `topic`, `page_ref`, `source_url`, `publication_date`, `related_metric`, `relationship` (`established` or `possible_explanation`; anything else is rejected), `is_illustrative` (optional). `established` means the filing itself states or arithmetically shows the link to the metric; a disclosure that merely appears in the same year is not a cause. Excerpts over 600 characters are truncated with a warning.
+`ticker`, `excerpt`, `source_doc` (required); `financial_year`, `topic`, `page_ref`, `source_url`, `publication_date`, `related_metric`, `relationship` (`established`, `possible_explanation`, `unresolved` or `not_assessed`; blank = `not_assessed`; any other value is stored as `possible_explanation` with a warning), `is_illustrative` (optional). `established` means the filing itself states or arithmetically shows the link to the metric; a disclosure that merely appears in the same year is not a cause. Excerpts over 600 characters are truncated with a warning.
 
 ## Input CSV: source verification (`source_verification.csv`)
 
@@ -98,3 +98,19 @@ The plausibility bands are illustrative aids for spotting unit mistakes, not acc
 | Free cash flow | operating cash flow - capex (capex stored as a positive outflow) | n/a if either is missing; never treats missing capex as 0 |
 | OCF / EBIT (peer) | operating cash flow / EBIT | n/a unless EBIT > 0 |
 | FCF margin (peer) | free cash flow / revenue | n/a unless revenue > 0 |
+
+## Comparability statuses
+- **Comparable**: appropriate for the selected comparison.
+- **Use with caution**: meaningful but affected by a period-length difference, or a debt definition (lease inclusion) not confirmed against the filing for that year.
+- **Not comparable**: value missing, or an absolute/flow figure over a non-12-month period.
+- **Unverified**: an input of the metric disagrees with the company's own filing and the difference is unresolved.
+Worst status wins. A year never compared with a filing is not downgraded; the "Filing check" column says "not checked".
+
+| Metric | 15-month period |
+|---|---|
+| Revenue, EBIT, revenue growth | Not comparable |
+| EBIT margin, interest coverage | Use with caution (period length) |
+| Debt-to-equity, current ratio | Reporting-date ratios; comparable subject to definitions |
+| OCF/debt (and other cash-flow ratios) | Use with caution: period-sensitive |
+
+Medians use "Comparable" only; a second median also admits definition-only cautions; period cautions are never included. `n_groups` counts independent corporate groups (Ambuja and ACC = one).

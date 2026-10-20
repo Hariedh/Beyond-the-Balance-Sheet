@@ -80,6 +80,31 @@ def same(a, b, tol=1e-9):
     return abs(a - b) <= tol * max(1.0, abs(a))
 
 
+def source_section() -> list[str]:
+    """Reconciliation of loaded figures with primary filings (read from the CSVs; not recomputed here)."""
+    ver = list(csv.DictReader(open(ROOT / "data" / "raw" / "source_verification.csv", encoding="utf-8")))
+    corr_path = ROOT / "data" / "raw" / "corrections_log.csv"
+    corr = list(csv.DictReader(open(corr_path, encoding="utf-8"))) if corr_path.exists() else []
+    counts: dict[str, int] = {}
+    for r in ver:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    md = ["## Reconciliation with primary filings", "",
+          f"{len(ver)} loaded values were compared with the company's own filing: " +
+          ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) + ". Filing text was read by automated extraction, not in a PDF viewer.", "",
+          "### Values changed after comparison with a filing", "",
+          "| Company | Year | Field | Original | Revised | Source | Reason | Date checked |", "|---|---|---|---|---|---|---|---|"]
+    md += [f"| {r['ticker']} | {r['financial_year']} | {r['field']} | {r['original_value_cr']} | {r['revised_value_cr']} | "
+           f"{r['source'][:90]}... | {r['reason'][:140]}... | {r['date_checked']} |" for r in corr] or ["| none | | | | | | | |"]
+    md += ["", "### Differences left unresolved (loaded value NOT changed)", "",
+           "| Company | Year | Item | Loaded | Original filing | Diff % | Status | Why unresolved |", "|---|---|---|---|---|---|---|---|"]
+    md += [f"| {r['ticker']} | {r['financial_year']} | {r['item']} | {r['app_value_cr']} | {r['filing_value_cr']} | {r['difference_pct']} | "
+           f"{r['status']} | {r['notes'][:160]} |" for r in ver if r["status"] == "discrepancy"]
+    md += ["", "Rows with status `unverified` are not like-for-like with the filing (for example debt where the lease balance was not "
+           "on the face of the statements, or Ambuja FY2024-25 revenue, which equals the company's restated comparative). They are "
+           "listed in the worksheet and are not counted as verified.", ""]
+    return md
+
+
 def main() -> int:
     from btb import config
     from btb.db import connect, load_fin
@@ -129,7 +154,8 @@ def main() -> int:
            "|---|---|---|---|---|---|---|---|---|", *lines, "",
            "n/a means an input is missing, a denominator is not positive, or (revenue growth) the prior period is not a "
            "directly preceding 12-month year. This report confirms the arithmetic and wiring only. It does NOT confirm that the "
-           "source figures themselves are correct; see `docs/source_verification.csv`.", ""]
+           "source figures themselves are correct; see `docs/source_verification_worksheet.md`.", ""]
+    md += source_section()
     out = ROOT / "docs" / "reconciliation_report.md"
     out.write_text("\n".join(md), encoding="utf-8")
     print(f"{len(mine)} company-years, {n_checked} values compared, {len(mismatches)} disagreements. Wrote {out}")

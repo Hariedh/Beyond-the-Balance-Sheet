@@ -8,7 +8,7 @@ An explainable screening tool for corporate financial risk indicators among Indi
 
 | Dataset | Status |
 |---|---|
-| `data/raw/financials_real.csv` (+ `financials_real_crosschecks.csv`, the log of every automated check) | **Real data**: 5 Indian cement companies (UltraTech, Ambuja, Shree, Dalmia, ACC), consolidated, 26 company-years, FY2020-21 to FY2025-26 (capex for 21 of them). Collected from Screener.in and stockanalysis.com (secondary aggregators) on 19 Oct 2026, cross-checked automatically. 61 inputs for the five companies were compared with primary filings (`source_verification.csv`, see `docs/source_verification_worksheet.md`): 49 verified, 4 approx, 4 discrepancy (all Ambuja, unresolved), 4 not like-for-like. Filing text was read by automated extraction, not visually in a PDF viewer. Most other years remain unverified. |
+| `data/raw/financials_real.csv` (+ `financials_real_crosschecks.csv`, the log of every automated check) | **Real data**: 5 Indian cement companies (UltraTech, Ambuja, Shree, Dalmia, ACC), consolidated, 26 company-years, FY2020-21 to FY2025-26 (capex for 21 of them). Collected from Screener.in and stockanalysis.com (secondary aggregators) on 19 Oct 2026, cross-checked automatically. 113 inputs across 12 of the 26 company-years were compared with primary filings (`source_verification.csv`, see `docs/source_verification_worksheet.md`): 97 verified, 8 approx, 3 unresolved discrepancies (all Ambuja FY2024-25, a restated year), 5 not like-for-like. 14 company-years are NOT yet checked, so the dataset is not fully verified. One value was corrected from a filing (Ambuja FY2025-26 EBIT, logged in `corrections_log.csv`). Filing text was read by automated extraction, not visually in a PDF viewer. Most other years remain unverified. |
 | `data/raw/financials_demo_ILLUSTRATIVE.csv` | **Synthetic.** Three fictional companies (DEMOA/B/C) used for tests and demos. Labelled illustrative throughout the app; never mixed with real data. |
 
 Important caveats (details in `data/raw/SOURCES.md`): Ambuja and ACC changed year-end from December to March, so FY2022-23 is a **15-month period** and their earlier calendar-year periods are not loaded; current assets/liabilities are unavailable for FY2020-21; cash is deliberately blank; EBIT = revenue - (total expenses - finance costs), i.e. before other income and exceptional items; equity excludes non-controlling interests.
@@ -25,6 +25,21 @@ Important caveats (details in `data/raw/SOURCES.md`): Ambuja and ACC changed yea
 
 See `docs/AUDIT_FINDINGS.md` (issue table), `docs/reconciliation_report.md`, `docs/source_verification_worksheet.md`, `docs/WORKFLOW.md`, `docs/CHANGES.md`, `docs/DEMO_SCRIPT.md`, `docs/INTERVIEW_NOTES.md`.
 
+
+## Definitions, rules and assumptions in brief
+
+**Ratios** (full table in `docs/data_dictionary.md`): EBIT = revenue - (total expenses - finance costs), i.e. before other income and exceptional items; interest coverage = EBIT / interest; debt-to-equity = total debt / equity (debt includes lease liabilities where checked, equity excludes non-controlling interest); current ratio; OCF / debt; revenue growth (only between consecutive 12-month years); EBIT margin; free cash flow = operating cash flow - capex. A ratio is n/a, never zero, when an input is missing or a denominator is not positive.
+
+**Warning rules** (seven, plus equity sign): low interest coverage, negative operating cash flow, debt up while EBIT down, low current ratio, sustained EBIT-margin decline, sustained revenue decline, negative free cash flow (informational). Every warning shows its threshold and why that threshold was chosen. All thresholds are illustrative analyst settings, not calibrated or validated credit standards; the sensitivity table shows how flags move (current-ratio flags are fragile: 2 / 5 / 6 / 9 company-years at 0.8 / 1.0 / 1.2 / 1.5). No composite score and no ranking.
+
+**Stress test**: revenue fall (%), EBIT-margin fall (percentage points of stressed revenue), optional fixed-cost share. Interest, capex and debt are held fixed; operating cash flow is assumed to fall by exactly the EBIT shortfall. Taxes, working capital, interest changes, financing actions and dividends are not modelled. Outputs are illustrative scenario estimates, not forecasts.
+
+**Observations, hypotheses and scenarios** are kept apart everywhere (including the CSV export): observed (loaded data), checked vs filing, unverified, hypothesis, scenario (not forecast), limitation. Explanations from filings are classified established / possible_explanation / unresolved / not_assessed; a same-period event is never shown as a cause.
+
+**Comparability (added in the third pass)**: peer comparisons now carry a per-company, per-metric status: Comparable / Use with caution / Not comparable / Unverified (see `docs/data_dictionary.md`). Reported numbers are never rescaled. Non-12-month periods (Ambuja and ACC FY2022-23, 15 months) are shown in a separate "Special-period observations" panel; an illustrative annualised revenue (revenue x 12/months) is optional and labelled as not reported. The main peer window is FY2023-24 to FY2025-26 (all 12-month years); FY2020-21 to FY2022-23 is longer-term context. Ambuja and ACC are one corporate group, so peer counts report independent groups. No new companies were added: the dataset is still the same five.
+
+**What has and has not been tested**: 179 automated tests pass on Streamlit 1.66 (the 171 earlier tests also passed on 1.40 and in a clean virtualenv; the 8 new comparability tests were run on 1.66 only); an independent stdlib recomputation agrees with the SQL views and pandas on 287 values; the app was exercised in headless Chromium for all five companies and the demo company (controls, tables, charts, warnings, CSV export). Not tested: live Gemini/Ollama calls, mobile layout, Streamlit 1.30, a human review of every chart. Data: 12 of 26 real company-years have inputs compared with filings; 14 do not; three Ambuja FY2024-25 differences are unresolved.
+
 ## Quick start
 
 ```bash
@@ -33,7 +48,7 @@ pip install -r requirements.txt
 
 python scripts/run_pipeline.py        # builds data/btb.sqlite from real + demo data, validates, computes ratios and flags
 streamlit run app.py                  # dashboard
-pytest                                # 146 tests
+pytest                                # 179 tests
 ```
 
 Real data only: `python scripts/run_pipeline.py --real-only`. To rebuild the real CSV after editing a figure: `python scripts/build_real_financials.py`.
@@ -89,7 +104,7 @@ A ratio is **never** silently set to zero. Missing stays NULL, and the app shows
   | **Anthropic Claude** (`ANTHROPIC_API_KEY`) | Paid API. |
 
 * Whatever the provider, the model gets only the evidence packet, is told not to compute numbers or use outside knowledge, and must cite evidence IDs. Hosted providers require you to tick a "data is public" confirmation. API keys are read from the environment and sent in headers, never in URLs, logs or error messages.
-* After generation, **automatic checks** flag unknown IDs, numbers not found in the cited evidence, causal language in observations, unhedged hypotheses, "documented" claims without a disclosure or external indicator, and predictive wording. These catch some problems, not all, so a human still reviews.
+* After generation, **automatic checks** flag unknown IDs, numbers not found in the cited evidence, causal language in observations, unhedged hypotheses, "documented" claims that do not cite an `established` disclosure (or an external indicator), and predictive wording. These catch some problems, not all, so a human still reviews.
 * Every run is stored in `ai_runs` (with the `provider:model` used) and manual-review columns for the evaluation in `docs/evaluation_guide.md`: compare providers and compare against rules-only. **Do not claim the AI improves anything until you have measured it.**
 * The provider code is tested against a local HTTP server (request shapes, auth headers, error mapping, retries). **It has not been run against live Gemini or Ollama services** in this build, so try each once with your own key or install.
 
@@ -97,16 +112,19 @@ A ratio is **never** silently set to zero. Missing stays NULL, and the app shows
 
 ```
 app.py                     Streamlit dashboard
-btb/                       config, db, loader, metrics, flags, validation, evidence, ai_commentary, pipeline
+btb/                       config, db, loader, metrics, flags, persistence, assessment, peers, stress, verification, report, validation, evidence, ai_commentary, uihelpers, pipeline
 sql/schema.sql             tables with CHECK constraints and foreign keys
 sql/views.sql              v_fin and v_ratios (window functions, NULL-safe CASE guards)
 sql/analysis_queries.sql   10 named example queries (JOIN, GROUP BY, window, NULL handling)
 scripts/run_pipeline.py    CLI to rebuild the database
 scripts/make_hand_check_sheet.py  worksheet (data/processed/hand_check_sheet.csv) for verifying ratios against annual reports
-scripts/build_real_financials.py  every transcribed real figure, derivations, cross-checks -> financials_real.csv
+scripts/build_real_financials.py  every transcribed real figure, derivations, cross-checks, corrections -> financials_real.csv, corrections_log.csv
+scripts/build_source_verification.py  filing values (crore) -> source_verification.csv
+scripts/make_verification_worksheet.py  -> docs/source_verification_worksheet.md
+scripts/audit_recalc.py    independent stdlib recomputation -> docs/reconciliation_report.md
 data/raw/                  inputs + SOURCES.md; data/processed/ holds exported CSVs
-docs/                      data_dictionary.md, evaluation_guide.md, report_template.md
-tests/                     146 tests (pytest)
+docs/                      AUDIT_FINDINGS, reconciliation_report, source_verification_worksheet, WORKFLOW, CHANGES, DEMO_SCRIPT, INTERVIEW_NOTES, data_dictionary, evaluation_guide, report_template
+tests/                     179 tests (pytest)
 ```
 
 SQLite notes: foreign keys are enforced because every connection runs `PRAGMA foreign_keys = ON`; `CHECK` constraints enforce the financial-year format, basis and unit lists.

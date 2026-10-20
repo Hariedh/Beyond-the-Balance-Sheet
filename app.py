@@ -29,11 +29,12 @@ from btb.flags import RULES, Thresholds, evaluate_flags, sensitivity_table  # no
 from btb.fmt import fmt_cr, fmt_pct, fmt_x  # noqa: E402
 from btb.metrics import (PERCENT_RATIOS, RATIO_COLUMNS, RATIO_DEFINITIONS, RATIO_LABELS,  # noqa: E402
                          compute_metrics, context_notes, ratio_notes)
-from btb.peers import (COMPARABILITY_NOTES, PEER_METRICS, peer_medians, peer_table,  # noqa: E402
+from btb.peers import (COMPARABILITY_NOTES, GROUP_NOTE, HISTORY_WINDOW, PEER_METRICS, RECENT_WINDOW, peer_medians, peer_table,  # noqa: E402
                        same_universe, with_peer_metrics)
 from btb.persistence import INDICATORS, persistence_table  # noqa: E402
 from btb.pipeline import run_pipeline  # noqa: E402
 from btb.report import build_report  # noqa: E402
+from btb.uihelpers import show_df as _show_df  # noqa: E402
 from btb.stress import StressInputs, stress_table, stress_test  # noqa: E402
 from btb.verification import summary as ver_summary  # noqa: E402
 from btb.verification import verification_frame  # noqa: E402
@@ -79,10 +80,14 @@ def load_crosschecks(mtime: float) -> pd.DataFrame:
     return pd.read_csv(path) if path.exists() else pd.DataFrame()
 
 
+XLABELS: dict[str, str] = {}      # financial year -> axis label; marks periods that are not 12 months
+
+
 def draw(ax, years, series: dict, title: str, ylabel: str, hline: tuple[float, str] | None = None, bars=None,
          annotate=None):
     """Missing values are NaN: bars are omitted and lines have gaps (never drawn as zero).
     `annotate` is an optional formatter that labels each point with its exact displayed value."""
+    years = [XLABELS.get(y, y) for y in years]
     if bars:
         ax.bar(years, [v if pd.notna(v) else float("nan") for v in bars[1]], color="#c8d3e0", label=bars[0])
     for label, values in series.items():
@@ -95,6 +100,18 @@ def draw(ax, years, series: dict, title: str, ylabel: str, hline: tuple[float, s
         ax.axhline(hline[0], linestyle="--", color="#b3261e", linewidth=1)
         ax.text(0.01, hline[0], f" {hline[1]}", color="#b3261e", transform=ax.get_yaxis_transform(),
                 va="bottom", fontsize=8)
+    # honest axes: a zero baseline when nothing is negative (so a ratio of 0.015x is not stretched to look like a collapse),
+    # and a visible zero line when values cross zero
+    plotted = [float(v) for vals in series.values() for v in vals if pd.notna(v)]
+    if bars:
+        plotted += [float(v) for v in bars[1] if pd.notna(v)]
+    if hline:
+        plotted.append(float(hline[0]))
+    if plotted:
+        if min(plotted) >= 0:
+            ax.set_ylim(0, max(plotted) * 1.15 if max(plotted) > 0 else 1)
+        else:
+            ax.axhline(0, color="grey", linewidth=0.8)
     ax.set_title(title, fontsize=11, loc="left")
     ax.set_ylabel(ylabel, fontsize=9)
     ax.tick_params(axis="x", labelrotation=30, labelsize=8)
@@ -105,11 +122,8 @@ def draw(ax, years, series: dict, title: str, ylabel: str, hline: tuple[float, s
 
 
 def show_df(data, **kwargs) -> None:
-    """st.dataframe at full width on both new (width='stretch') and older (use_container_width) Streamlit."""
-    try:
-        st.dataframe(data, width="stretch", **kwargs)
-    except TypeError:
-        show_df(data, **kwargs)
+    """Full-width dataframe on both new and old Streamlit (see btb/uihelpers.py)."""
+    _show_df(st, data, **kwargs)
 
 
 def show_fig(fig) -> None:
@@ -187,6 +201,7 @@ years = list(m["financial_year"])
 flags = flags_all[(flags_all["ticker"] == ticker) & (flags_all["basis"] == basis)
                   & (flags_all["financial_year"].isin(years))]
 is_illustrative = bool(m["is_illustrative"].any())
+XLABELS.update({r.financial_year: f"{r.financial_year}\n({int(r.period_months)} months)" for r in m.itertuples() if int(r.period_months) != 12})
 cur = m.iloc[-1]
 prev = m.iloc[-2] if len(m) > 1 and bool(cur["has_prior_year"]) else None
 explained = explain_flags(flags, metrics_all, t, ver_all, pers_all)
@@ -273,7 +288,7 @@ for kind in KIND_LABEL:
         icon = {"conflict": "↔️", "convergence": "🔗", "data_limitation": "⚠️", "inconclusive": "❔"}.get(kind, "⚑")
         st.markdown(f"{icon} **{KIND_LABEL[kind]}**: {a['text']}")
 
-PERS_SHORT = {"persistent": "PERSISTENT", "building": "building", "new": "new", "history_unknown": "breach (history unknown)",
+PERS_SHORT = {"persistent": "PERSISTENT", "building": "building", "new": "new", "history_unknown": "breach (?)",
               "recovered": "recovered", "ok": "ok", "not_assessable": "n/a"}
 st.markdown("**Persistence by indicator** (only directly consecutive, comparable years count; n/a is never treated as ok)")
 pm = pers_company[pers_company["financial_year"].isin(years)].assign(s=lambda d: d["status"].map(PERS_SHORT))
@@ -281,7 +296,8 @@ if not pm.empty:
     grid = pm.pivot_table(index="indicator", columns="financial_year", values="s", aggfunc="first").reindex(columns=years)
     grid.index = [INDICATORS[i] for i in grid.index]
     show_df(grid.fillna("n/a"))
-st.caption("Persistent = breached in at least the chosen number of directly consecutive observed years. This describes the "
+st.caption("breach (?) = breached, but the previous year is missing or not comparable, so it cannot be called new or persistent. "
+           "Persistent = breached in at least the chosen number of directly consecutive observed years. This describes the "
            "historical data; it is not a statistical test or a prediction.")
 
 if explained.empty:
@@ -293,6 +309,7 @@ else:
         with st.expander(f"{e['Year']}: {e['Indicator']}  ({e['Persistence'].split(':')[0]})"):
             st.markdown(f"**Observed:** {e['Observed']}")
             st.markdown(f"**Threshold:** {e['Threshold']}")
+            st.markdown(f"**Why this threshold:** {e['Threshold rationale']}")
             st.markdown(f"**Formula:** {e['Formula']}")
             st.markdown(f"**Why it matters:** {e['Why it matters']}")
             st.markdown(f"**Persistence:** {e['Persistence']}")
@@ -357,23 +374,89 @@ with tab3:
 st.caption("Gaps in a line mean the value is missing or the ratio is not defined (e.g. zero denominator, or a prior year that is not "
            "a comparable 12-month year); they are never plotted as zero. Missing bars are simply absent.")
 
-st.markdown(f"**Peers, {basis}, {cur['financial_year']}**")
-pt = peer_table(metrics_all, basis, cur["financial_year"], is_illustrative)
+st.markdown("**Peer comparison**")
+win_choice = st.radio(
+    "Peer window", ["Recent window: FY2023-24 to FY2025-26 (main comparison)", "Longer-term context: FY2020-21 to FY2022-23"],
+    horizontal=True, key="peer_window",
+    help="The recent window has standard 12-month years for every company and the best filing coverage. The earlier window "
+         "includes the 15-month transition period and mostly unchecked years; metric-specific statuses apply.")
+win = RECENT_WINDOW if win_choice.startswith("Recent") else HISTORY_WINDOW
+universe = same_universe(metrics_all, is_illustrative)
+universe = universe[universe["basis"] == basis]
+win_years = sorted(y for y in universe["financial_year"].unique() if win[0] <= y <= win[1]) if not is_illustrative else \
+    sorted(universe["financial_year"].unique())
+if not win_years:
+    win_years = sorted(universe["financial_year"].unique())
+default_idx = len(win_years) - 1
+peer_year = st.selectbox("Peer year", win_years, index=default_idx, key=f"peer_year_{win_choice[:6]}")
+pt = peer_table(metrics_all, basis, peer_year, is_illustrative, ver_all)
 med = peer_medians(pt)
-show = pt.copy()
+st.markdown(f"**Peers, {basis}, {peer_year}**")
+if not is_illustrative:
+    in_win = universe[universe["financial_year"].isin(win_years)]
+    n_obs = len(in_win)
+    n_std = int((in_win["period_months"] == 12).sum())
+    n_chk = sum(1 for r in in_win.itertuples()
+                if not ver_all.empty and ((ver_all["ticker"] == r.ticker) & (ver_all["financial_year"] == r.financial_year)).any())
+    st.caption(f"This window holds {n_obs} real company-years: {n_std} are standard 12-month periods and {n_chk} have at least one "
+               "input compared with a primary filing. Missing or non-comparable observations are listed, never estimated.")
+show = pt[["ticker", "group", "period_months", "revenue_cr", "filing_check", *PEER_METRICS]].copy()
 for c, (_label, _grp, kind) in PEER_METRICS.items():
-    show[c] = show[c].map(lambda v, kind=kind: fmt_pct(v) if kind == "pct" else fmt_x(v))
-show["revenue_cr"] = show["revenue_cr"].map(fmt_cr)
-show = show.drop(columns=["comparable", "name"]).rename(columns={
-    "ticker": "Ticker", "period_months": "Months", "revenue_cr": "Revenue", "status": "Comparability",
-    **{c: v[0] for c, v in PEER_METRICS.items()}})
+    show[c] = show[c].map(lambda v, kind=kind: "n/a" if v is None or pd.isna(v) else (fmt_pct(v) if kind == "pct" else fmt_x(v)))
+show["revenue_cr"] = show["revenue_cr"].map(lambda v: "n/a" if v is None or pd.isna(v) else fmt_cr(v))
+show = show.rename(columns={"ticker": "Ticker", "group": "Group", "period_months": "Months", "revenue_cr": "Revenue (reported)",
+                            "filing_check": "Filing check", **{c: v[0] for c, v in PEER_METRICS.items()}})
 show_df(show, hide_index=True)
-medrow = {PEER_METRICS[r.metric][0]: (fmt_pct(r.median) if PEER_METRICS[r.metric][2] == "pct" else fmt_x(r.median)) + f" (n={r.n})"
-          for r in med.itertuples()}
-st.caption("Median of comparable companies only (12-month periods, same basis and year): " +
-           "; ".join(f"{k}: {v}" for k, v in medrow.items()))
+st.markdown("**Comparability status by metric**")
+sym = {"comparable": "Comparable", "caution": "Use with caution", "not_comparable": "Not comparable", "unverified": "Unverified"}
+stat = pt[["ticker", *[f"st__{c}" for c in PEER_METRICS]]].copy()
+for c in PEER_METRICS:
+    stat[f"st__{c}"] = stat[f"st__{c}"].map(sym)
+stat = stat.rename(columns={"ticker": "Ticker", **{f"st__{c}": v[0] for c, v in PEER_METRICS.items()}})
+show_df(stat, hide_index=True)
+st.caption("Comparable = appropriate for the selected comparison. Use with caution = meaningful but affected by a period or definition "
+           "difference. Not comparable = excluded from the relevant calculation. Unverified = an input disagrees with the company's own "
+           "filing and the difference is unresolved. A year never compared with a filing is shown in 'Filing check', not downgraded here.")
+reasons = [(r.ticker, PEER_METRICS[c][0], r._asdict()[f"st__{c}"], r._asdict()[f"why__{c}"]) for r in pt.itertuples() for c in PEER_METRICS
+           if r._asdict()[f"st__{c}"] != "comparable"]
+if reasons:
+    with st.expander(f"Why {len(reasons)} metric value(s) are not fully comparable in {peer_year}"):
+        show_df(pd.DataFrame(reasons, columns=["Ticker", "Metric", "Status", "Reason"]).assign(
+            Status=lambda d: d["Status"].map(sym)), hide_index=True)
+def _fmt_med(metric, v):
+    return "n/a" if v is None or pd.isna(v) else (fmt_pct(v) if PEER_METRICS[metric][2] == "pct" else fmt_x(v))
+st.caption("Median of 'Comparable' companies only: " + "; ".join(
+    f"{PEER_METRICS[r.metric][0]}: {_fmt_med(r.metric, r.median)} (n={r.n}, {r.n_groups} independent groups)" for r in med.itertuples()))
+extra = [r for r in med.itertuples() if r.n_incl_definition > r.n]
+if extra:
+    st.caption("Including companies whose only caution is an unconfirmed debt definition: " + "; ".join(
+        f"{PEER_METRICS[r.metric][0]}: {_fmt_med(r.metric, r.median_incl_definition)} (n={r.n_incl_definition})" for r in extra))
 st.caption("Companies are not ranked or labelled safest / riskiest: one ratio cannot support that, and size, acquisitions and "
-           "consolidation scope differ. A period that is not 12 months is excluded from medians; a company with no data this year is listed, not hidden.")
+           "consolidation scope differ. Period-length cautions are never included in a median; a company with no data this year is listed, not hidden.")
+if not is_illustrative and {"AMBUJACEM", "ACC"} <= set(pt["ticker"]):
+    st.info(GROUP_NOTE)
+
+with st.expander("Special-period observations (kept separate from the comparable sample)"):
+    special = universe[universe["period_months"] != 12].sort_values(["ticker", "fy_start"])
+    if special.empty:
+        st.write("No non-12-month periods in this universe.")
+    else:
+        st.caption("Reported figures are shown unchanged. They are not comparable with 12-month annual figures and are never converted "
+                   "into 12-month figures. Their balance-sheet ratios (debt-to-equity, current ratio) are not affected by period length.")
+        sp = special[["ticker", "financial_year", "period_months", "revenue_cr", "ebit_cr", "ebit_margin", "interest_coverage",
+                      "debt_to_equity", "current_ratio"]].copy()
+        if st.checkbox("Add an illustrative annualised revenue (revenue x 12 / months)", key="annualise"):
+            sp["illustrative_annualised_revenue_cr"] = sp["revenue_cr"] * 12 / sp["period_months"]
+            st.caption("Illustrative only: assumes revenue was spread evenly over the period, ignores seasonality and scope changes, "
+                       "and is not a reported figure. It is not used in any comparison, median or warning.")
+        sp["revenue_cr"] = sp["revenue_cr"].map(fmt_cr)
+        sp["ebit_cr"] = sp["ebit_cr"].map(fmt_cr)
+        sp["ebit_margin"] = sp["ebit_margin"].map(fmt_pct)
+        for c in ("interest_coverage", "debt_to_equity", "current_ratio"):
+            sp[c] = sp[c].map(fmt_x)
+        if "illustrative_annualised_revenue_cr" in sp:
+            sp["illustrative_annualised_revenue_cr"] = sp["illustrative_annualised_revenue_cr"].map(fmt_cr)
+        show_df(sp, hide_index=True)
 with st.expander("Why peers are not fully comparable"):
     for n in COMPARABILITY_NOTES:
         st.markdown(f"- {n}")
@@ -394,9 +477,17 @@ stress = stress_test(m[m["financial_year"] == base_year].iloc[0], StressInputs(r
                      t.interest_coverage_min)
 if stress["available"]:
     tbl = stress_table(stress)
-    disp = tbl.assign(**{k: tbl.apply(lambda r, k=k: ({"cr": fmt_cr, "pct": fmt_pct, "x": fmt_x}[r["kind"]])(r[k]), axis=1)
+    def _cell(r, k):
+        v = r[k]
+        if k == "Change" and r["kind"] == "pct" and v is not None and pd.notna(v):
+            return "0.0 pp" if abs(v) < 0.0005 else f"{v * 100:+.1f} pp"      # a change in a percentage is in points
+        return {"cr": fmt_cr, "pct": fmt_pct, "x": fmt_x}[r["kind"]](v)
+    disp = tbl.assign(**{k: tbl.apply(lambda r, k=k: _cell(r, k), axis=1)
                          for k in ("Baseline", "Scenario", "Change")}).drop(columns=["kind"])
     show_df(disp, hide_index=True)
+    st.caption("Illustrative scenario estimates, not forecasts or predictions. Percent shocks and percentage-point shocks are different "
+               "inputs: 'revenue falls 10%' scales revenue; 'margin falls 2 points' subtracts 2% of stressed revenue from EBIT. "
+               "Capex is held fixed and operating cash flow moves only with EBIT (no tax, working-capital or financing effects).")
     be = stress["breakeven_revenue_decline"]
     st.markdown("Revenue fall that would take interest coverage to 1.0x under these assumptions: **" +
                 ("not reached within a 100% fall, or not applicable" if be is None else f"{be:.0%}") + "**")
@@ -434,8 +525,8 @@ else:
     st.markdown("**Company disclosures (from primary filings)**")
     show_df(d[["financial_year", "topic", "excerpt", "related_metric", "relationship", "source_doc", "page_ref",
                     "publication_date", "source_url"]], hide_index=True)
-    st.caption("'established' means the filing itself shows the link to the metric; 'possible_explanation' means a plausible "
-               "link that the filing does not establish. A disclosure appearing in the same year as a ratio change does not show it caused the change.")
+    st.caption("'established' = the filing itself states or arithmetically shows the point; 'possible_explanation' = a plausible link the "
+               "filing does not establish; 'unresolved' = evidence conflicts or is incomplete; 'not_assessed' = not yet checked. A disclosure appearing in the same year as a ratio change does not show it caused the change.")
 if ext_all.empty:
     st.caption("External indicators: none loaded (optional). Add dated, sourced series to `data/raw/external_indicators.csv` only if they materially help.")
 else:
@@ -448,18 +539,22 @@ if is_illustrative:
 elif mine_ver.empty:
     st.write("No input for this company has been checked against a primary filing.")
 else:
+    n_chk = len(set(mine_ver["financial_year"]) & set(years))
+    st.info(f"{n_chk} of the {len(years)} selected years have at least one input compared with a primary filing. "
+            f"The other {len(years) - n_chk} are NOT yet checked and rest on aggregator data. The dataset is not fully verified.")
     vshow = mine_ver[["financial_year", "item", "app_value_cr", "filing_value_cr", "difference_cr", "difference_pct", "status",
                       "source_doc", "publication_date", "location", "notes"]]
     show_df(vshow, hide_index=True)
     st.caption("Filing values were read from the filing text by an automated extraction, not inspected in a PDF viewer; "
-               "re-check the page before quoting externally. 'unverified' = not like-for-like (for example lease liabilities not located). "
+               "re-check the page before quoting externally. 'unverified' = not like-for-like with the filing (for example the lease balance is not on the face of the statements, or the loaded series is a restated comparative). "
                "A discrepancy is reported, not corrected.")
 
 questions = []
 if not mine_ver.empty:
     for r in mine_ver[mine_ver["status"] == "discrepancy"].itertuples():
+        why = f" Note: {r.notes[:330]}" if isinstance(r.notes, str) and r.notes else ""
         questions.append(f"{r.financial_year} {r.item}: loaded {r.app_value_cr:,.1f} vs filing {r.filing_value_cr:,.1f} crore "
-                         f"({r.difference_pct:+.1f}%). Cause not established; resolve against the annual report before relying on it.")
+                         f"({r.difference_pct:+.1f}%). Cause not established; resolve against the annual report before relying on it.{why}")
 checked_years = set(mine_ver["financial_year"]) if not mine_ver.empty else set()
 unchecked = [y for y in years if y not in checked_years]
 if not is_illustrative and unchecked:
@@ -514,31 +609,17 @@ with st.expander("Optional: narrative wording (rules-only, or AI-assisted)"):
 
     provider_ready = True
     confirm_public = True
-    prov_key, model_name, api_key = "", "", ""
+    prov_key, model_name = "", ""
     if mode == "ai":
         statuses = llm.all_statuses()
         keys = [s.key for s in statuses]
-        prov_key = st.selectbox("Model provider", keys, index=keys.index("gemini"),
+        first_ready = next((s.key for s in statuses if s.available), keys[0])
+        prov_key = st.selectbox("Model provider", keys, index=keys.index(first_ready),
                                 format_func=lambda k: llm.LABELS[k])
         sel = next(s for s in statuses if s.key == prov_key)
         provider_ready = sel.available
-        if prov_key == "gemini":
-            api_key = st.text_input("Gemini API key", type="password", placeholder="Paste your key (AIza...)",
-                                    help="Free key from Google AI Studio (aistudio.google.com/apikey). Kept in this "
-                                         "browser session only; never saved to disk or to the database.").strip()
-            provider_ready = bool(api_key) or sel.available
-            if not provider_ready:
-                st.warning("Paste a Gemini API key to use AI-assisted mode.")
-            gem_models = list(dict.fromkeys([sel.default_model, "gemini-2.5-flash", "gemini-2.5-flash-lite",
-                                             "gemini-2.5-pro"]))
-            pick = st.selectbox("Gemini model", gem_models + ["Other (type model ID)"])
-            model_name = (st.text_input("Model ID", value=sel.default_model).strip()
-                          if pick.startswith("Other") else pick)
-        else:
-            (st.caption if sel.available else st.warning)(sel.reason)
-        if prov_key == "gemini":
-            pass
-        elif prov_key == "ollama" and sel.available:
+        (st.caption if sel.available else st.warning)(sel.reason)
+        if prov_key == "ollama" and sel.available:
             installed = llm.ollama_models()
             model_name = st.selectbox("Model", installed,
                                       index=installed.index(sel.default_model) if sel.default_model in installed else 0)
@@ -563,8 +644,7 @@ with st.expander("Optional: narrative wording (rules-only, or AI-assisted)"):
                 model = f"{prov_key}:{model_name}"
                 with st.spinner("Asking the model ..."):
                     try:
-                        commentary = ai.generate_ai_commentary(packet, provider=prov_key, model=model_name,
-                                                                 api_key=api_key)
+                        commentary = ai.generate_ai_commentary(packet, provider=prov_key, model=model_name)
                     except Exception as exc:  # network, key, quota, or malformed JSON
                         st.error(f"AI commentary failed: {exc}")
                         commentary = None
@@ -583,8 +663,10 @@ with st.expander("Optional: narrative wording (rules-only, or AI-assisted)"):
         ver = res["verification"]
         problems_by_key = {(r["section"], r["index"]): r["problems"] for r in ver["items"]}
         if res["mode"] == "ai":
-            st.caption("AI-generated text. It has not been established as correct. Automatic checks below catch some "
-                       "problems (unknown IDs, unsupported numbers, unhedged causal claims) but not all.")
+            st.caption("AI-generated text. It has not been established as correct.")
+        st.caption("Limitation: the automatic claim checks (unknown IDs, unsupported numbers, unhedged causal language, wrong "
+                   "'documented' labels) catch some problems but cannot guarantee that any statement is factually correct. "
+                   "Read every statement against the evidence. Stress-test scenarios are not part of the commentary evidence.")
         st.caption(f"Run #{res['run_id']} saved for evaluation. Automatic check: {ver['statements_without_problems']} of "
                    f"{ver['statements_checked']} statements without detected problems.")
         com = res["commentary"]
@@ -614,7 +696,8 @@ with st.expander("Optional: narrative wording (rules-only, or AI-assisted)"):
             st.markdown("**Caveats**")
             for c in com["caveats"]:
                 st.markdown(f"- {c}")
-        with st.expander("Evidence packet sent to the commentary step"):
+        # a checkbox, not a nested expander: Streamlit before about 1.46 rejects expanders inside expanders
+        if st.checkbox("Show the evidence packet sent to the commentary step", key="show_packet"):
             st.json(res["packet"], expanded=False)
 
 

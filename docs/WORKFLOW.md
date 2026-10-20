@@ -23,4 +23,8 @@ Question the app answers: *which financial vulnerabilities are emerging in each 
 ## Stress-test formulas
 C = revenue - EBIT (cost base). With revenue fall d, fixed share f and margin shock pp:
 revenue_s = R(1-d); EBIT_s = revenue_s - [fC + (1-f)C(1-d)] - pp x revenue_s.
-f = 0 keeps the EBIT margin constant under a pure revenue shock. Interest, capex and debt are held constant; OCF falls by the full EBIT shortfall (pre-tax). Break-even revenue fall for 1.0x coverage: k = (I + fC) / (R(1-pp) - (1-f)C), fall = 1 - k. Negative EBIT, zero interest and missing inputs are handled with notes instead of numbers. Not a forecast.
+f = 0 keeps the EBIT margin constant under a pure revenue shock. Interest, capex and debt are held constant; OCF falls by the full EBIT shortfall (pre-tax). Break-even revenue fall for 1.0x coverage: k = (I + fC) / (R(1-pp) - (1-f)C), fall = 1 - k. Negative EBIT, zero interest and missing inputs are handled with notes instead of numbers.
+
+**Units:** the revenue slider is a percentage of revenue (10 = revenue x 0.90). The margin slider is in percentage points of stressed revenue (2 = subtract 0.02 x revenue_s from EBIT). They are different inputs.
+
+**What the cash-flow lines assume:** operating cash flow falls by exactly the EBIT shortfall and capex stays at its reported level, so free cash flow falls by the same amount. Taxes, working capital, changes in interest or other income, dividends, refinancing and other financing actions are NOT modelled. If operating cash flow or capex is missing, no cash-flow line is produced. All outputs are illustrative scenario estimates, not forecasts.

@@ -72,4 +72,8 @@ One row = one company, one financial year, one reporting basis.
 
 ## Primary-source verification
 
-`source_verification.csv` records 61 comparisons of loaded values with primary filings (UltraTech, Dalmia, ACC: FY2024-25; Shree and Ambuja: FY2024-25 and FY2025-26). Filing text was read through automated extraction, not visually in a PDF viewer. Four Ambuja values disagree with the filing by more than 1% (FY2024-25 operating cash flow, current assets, depreciation; FY2025-26 EBIT); the cause is not established and the loaded values were not altered. Lease liabilities were not located in the extracted statements, so total debt could not be compared like-for-like for four company-years. `external_indicators.csv` is still empty (optional).
+`source_verification.csv` records 113 comparisons of loaded values with primary filings for 12 of the 26 real company-years: UltraTech FY2024-25 and FY2025-26; ACC FY2024-25 and FY2025-26; Dalmia FY2023-24 to FY2025-26; Shree FY2023-24 to FY2025-26; Ambuja FY2024-25 and FY2025-26. The other 14 company-years are NOT yet checked. Filing text was read through automated extraction, not visually in a PDF viewer; each row carries the date it was checked.
+
+Results: 97 verified, 8 approx (within 1%), 3 unresolved discrepancies (Ambuja FY2024-25 operating cash flow, current assets, depreciation: Ambuja's FY2025-26 annual report marks its 2024-25 figures as restated, Note 68(h), and the loaded series equals the restated revenue and EBITDA, but the restated cash-flow and balance-sheet figures could not be read), and 5 not like-for-like (total debt where the lease balance is not on the face of the statements, and Ambuja FY2024-25 revenue, which equals the company's restated comparative).
+
+One loaded value was changed after comparison with a filing: Ambuja FY2025-26 EBIT 3,007 -> 2,968.53 (`corrections_log.csv`). `external_indicators.csv` is still empty (optional).

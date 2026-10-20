@@ -55,6 +55,9 @@ Hypotheses must be hedged (may, might, could, possibly, consistent with).
 6. Never claim that a company will default, is distressed, or is safe. Never give investment advice.
 7. If the packet marks data as illustrative, say so in "caveats".
 8. If evidence is missing or thin, say so in "caveats" rather than guessing.
+9. The packet holds OBSERVED data only. It contains no stress-test or scenario results: never describe a hypothetical \
+scenario as something that happened. "documented" may only cite a disclosure whose "relationship" is "established"; \
+a "possible_explanation", "unresolved" or "not_assessed" disclosure supports a hypothesis at most.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -244,17 +247,15 @@ def normalise_commentary(data: dict) -> dict:
 
 
 def generate_ai_commentary(packet: dict, provider: str = "anthropic", model: str | None = None,
-                           call_model: Callable[[str, str, str], str] | None = None, retries: int = 1,
-                           api_key: str = "") -> dict:
+                           call_model: Callable[[str, str, str], str] | None = None, retries: int = 1) -> dict:
     """Ask a model to summarise the packet.
 
     provider   one of llm.PROVIDERS ('gemini', 'ollama', 'openai_compatible', 'anthropic')
     call_model optional `(system, user, model) -> text` used instead of a real provider (tests)
-    api_key    optional key passed to the provider (Gemini), instead of the environment
     retries    extra attempts if the reply is not valid JSON (small local models need this sometimes)
     """
     model = model or llm.default_model(provider)
-    call = call_model or (lambda s, u, m: llm.complete(provider, s, u, m, api_key=api_key))
+    call = call_model or (lambda s, u, m: llm.complete(provider, s, u, m))
     user = ("Evidence packet (JSON). Use only this.\n\n" + json.dumps(packet, ensure_ascii=False, indent=1))
     last: Exception | None = None
     for attempt in range(retries + 1):
@@ -272,6 +273,7 @@ def generate_ai_commentary(packet: dict, provider: str = "anthropic", model: str
 def verify_commentary(commentary: dict, packet: dict) -> dict:
     """Check commentary against the packet. Returns per-item problems and totals."""
     ids = packet_ids(packet)
+    relationship_by_id = {d["id"]: d.get("relationship") for d in packet.get("disclosures", [])}
     results = []
 
     def check(section: str, index: int, item: dict) -> list[str]:
@@ -303,6 +305,12 @@ def verify_commentary(commentary: dict, packet: dict) -> dict:
                 problems.append("Missing or invalid label (must be 'hypothesis' or 'documented').")
             if label == "documented" and not any(c.startswith(("DISC.", "EXT.")) for c in cited):
                 problems.append("Labelled 'documented' but cites no disclosure (DISC.) or external indicator (EXT.).")
+            elif label == "documented":
+                weak = [c for c in cited if c.startswith("DISC.") and relationship_by_id.get(c) != "established"]
+                solid = [c for c in cited if c.startswith("EXT.") or (c.startswith("DISC.") and c not in weak)]
+                if weak and not solid:
+                    problems.append("Labelled 'documented' but the cited disclosure is not marked 'established' "
+                                    f"({', '.join(weak)}); a possible, unresolved or unassessed explanation is a hypothesis.")
             if label == "hypothesis" and causal and not HEDGE_RE.search(text):
                 problems.append("Causal hypothesis is not hedged.")
         if re.search(r"\b(will default|is going to default|certain to default|guaranteed|safe investment|buy|sell)\b",

@@ -133,6 +133,21 @@ PRIMARY_NOTES = {
     ("AMBUJACEM", "FY2022-23"): "Revenue matches the company's board release of 2 May 2023.",
 }
 
+# Corrections supported by a primary filing. Applied ONLY where the filing is like-for-like with the metric
+# definition; every change is written to data/raw/corrections_log.csv (original value kept).
+CORRECTIONS = {
+    ("AMBUJACEM", "FY2025-26", "ebit"): dict(
+        revised=2968.53,
+        source=("Ambuja Cements audited consolidated results FY2025-26, NSE iXBRL filing 04-May-2026 "
+                "(revenue 40,655.68; total expenses 37,910.76; finance costs 223.61 => EBIT 2,968.53) and the company media "
+                "release of 04-May-2026 (operating EBITDA Rs 6,539 cr = 2,968.53 + depreciation 3,570.41)"),
+        url="https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_INDAS_155484_04052026201158_iXBRL_WEB.html",
+        reason=("Screener operating profit (6,577) is about 38 cr above the company's own operating EBITDA (6,539); "
+                "the filing-derived EBIT matches the project's EBIT definition. Cause of the aggregator difference not established."),
+    ),
+}
+CORRECTIONS_OUT = OUT.with_name("corrections_log.csv")
+
 COMPANY_NOTES = {
     "ULTRACEMCO": "Acquisitions around FY2024-25 may affect comparability and the step-up in debt/interest: verify in the annual report.",
     "AMBUJACEM": "Year-end changed from December to March; the Dec-2020 and Dec-2021 calendar-year periods are not loaded "
@@ -184,6 +199,7 @@ def fmt(x):
 
 def main() -> int:
     rows, failures, report = [], [], []
+    corrections_log: list = []
     for ticker, (s_url, s_rows) in SCREENER.items():
         sa_url, sa_rows = STOCKANALYSIS[ticker]
         for fy, (months, sales, op, oi, interest, dep, pbt, eq_cap, reserves, borrow, cfo) in s_rows.items():
@@ -244,7 +260,14 @@ def main() -> int:
             capex = capex_mn / 10 if capex_mn is not None else None
             if capex is not None:
                 notes.append(CAPEX_NOTE)
-            rows.append([ticker, fy, "consolidated", "crores", months, fmt(sales), fmt(op - dep), fmt(interest),
+            ebit_val = op - dep
+            corr = CORRECTIONS.get((ticker, fy, "ebit"))
+            if corr:
+                corrections_log.append([ticker, fy, "consolidated", "ebit", ebit_val, corr["revised"], corr["source"],
+                                        corr["url"], corr["reason"], "2026-10-20", "corrected: primary filing like-for-like"])
+                notes.append(f"EBIT corrected from {ebit_val:,.0f} (aggregator-derived) to {corr['revised']:,.2f} using the audited filing; see corrections_log.csv.")
+                ebit_val = corr["revised"]
+            rows.append([ticker, fy, "consolidated", "crores", months, fmt(sales), fmt(ebit_val), fmt(interest),
                          fmt(borrow), fmt(eq_cap + reserves), fmt(ca), fmt(cl), fmt(ocf), "", fmt(capex),
                          DEFINITIONS, SOURCE, f"{s_url}; {sa_url}" if sa else s_url, " ".join(notes), 0])
 
@@ -266,6 +289,12 @@ def main() -> int:
         w.writerow(HEADER)
         w.writerows(rows)
     print(f"Wrote {OUT}")
+    with open(CORRECTIONS_OUT, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["ticker", "financial_year", "basis", "field", "original_value_cr", "revised_value_cr", "source",
+                    "source_url", "reason", "date_checked", "status"])
+        w.writerows(corrections_log)
+    print(f"Wrote {CORRECTIONS_OUT} ({len(corrections_log)} correction(s))")
     # Machine-readable record of every automated check, shown in the dashboard's verification panel.
     with open(CHECKS_OUT, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)

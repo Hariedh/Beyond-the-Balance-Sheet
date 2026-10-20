@@ -36,6 +36,7 @@ spec = importlib.util.spec_from_file_location("bld", ROOT / "scripts" / "build_r
 bld = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bld)
 
+CHECKED_ON = "2026-10-20"
 METHOD = "filing text read via automated extraction; not visually checked in a PDF viewer"
 
 # (ticker, FY) -> document facts
@@ -65,6 +66,31 @@ DOCS = {
         date="2025-05-14 (stated in the document)",
         where="Consolidated Statement of Audited Financial Results, p. 1",
         url="https://www.shreecement.com/uploads/investors/shareholder/March_2025.pdf"),
+    ("DALBHARAT", "FY2023-24"): dict(
+        doc="Dalmia Bharat outcome of board meeting April 2025 (PDF): FY2023-24 COMPARATIVE column of the audited consolidated results",
+        date="2025-04-23 (from NSE filing listing); comparative column, figures as presented a year later",
+        where="Consolidated Statement of Results / Assets and Liabilities / Cash Flows, comparative year column (page numbers not shown in extracted text)",
+        url="https://www.dalmiacement.com/uploads/financial-results/2024-25/quarterlyFinancialResults/outcomeofbmApril25.pdf"),
+    ("SHREECEM", "FY2023-24"): dict(
+        doc="Shree Cement audited consolidated results year ended 31 March 2025 (PDF): FY2023-24 COMPARATIVE column",
+        date="2025-05-14 (stated in the document); comparative column, figures as presented a year later",
+        where="Consolidated results, balance sheet and cash flow, comparative year column (page numbers not shown in extracted text)",
+        url="https://www.shreecement.com/uploads/investors/shareholder/March_2025.pdf"),
+    ("ULTRACEMCO", "FY2025-26"): dict(
+        doc="UltraTech Cement outcome of board meeting: audited consolidated results FY2025-26 incl. FY2024-25 comparative (PDF), NSE archives",
+        date="2026-04-27 (from filing timestamp in URL)",
+        where="Consolidated results p.1/5; balance sheet p.2/5; cash flow p.3/5 (page markers as extracted)",
+        url="https://nsearchives.nseindia.com/corporate/ULTRACEMCO1_27042026142549_Outcome_of_BM_Results.pdf"),
+    ("ACC", "FY2025-26"): dict(
+        doc="ACC integrated results filing (Ind-AS, consolidated, audited), NSE archives",
+        date="2026-04-30 (from filing timestamp in URL)",
+        where="Financial Results Part I; Statement of Assets and Liabilities; Cash flow statement (year column); amounts in lakh converted to crore",
+        url="https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_INDAS_155102_30042026214733_iXBRL_WEB.html"),
+    ("DALBHARAT", "FY2025-26"): dict(
+        doc="Dalmia Bharat integrated results filing (Ind-AS, consolidated, audited), NSE archives",
+        date="2026-04-28 (from filing timestamp in URL)",
+        where="Financial Results Part I; Statement of Assets and Liabilities; Cash flow statement (year column); amounts in lakh (rounded to hundreds) converted to crore",
+        url="https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_INDAS_153591_28042026161720_iXBRL_WEB.html"),
     ("AMBUJACEM", "FY2025-26"): dict(
         doc="Ambuja Cements integrated results filing (Ind-AS, consolidated, audited), NSE archives",
         date="2026-05-04 (from filing timestamp in URL)",
@@ -81,7 +107,21 @@ DOCS = {
 FILING = {
     ("ULTRACEMCO", "FY2024-25"): dict(revenue=75955.13, total_expenses=69063.17, finance=1650.54, dep=4014.95,
         share_cap=294.68, other_equity=70412.09, nci=3186.59, ca=23599.51, cl=32364.97, ocf=10673.43, capex=9129.33,
-        borrowings=15780.77 + 7250.22, leases=None, exceptional=-97.43, other_income=744.17),
+        borrowings=15780.77 + 7250.22, leases=868.21 + 202.98, exceptional=-97.43, other_income=744.17),
+    ("ULTRACEMCO", "FY2025-26"): dict(revenue=88511.53, total_expenses=78007.47, finance=1871.71, dep=4644.46,
+        share_cap=294.68, other_equity=76328.86, nci=4088.90, ca=25101.75, cl=33831.70, ocf=15315.86, capex=9677.77,
+        borrowings=15018.82 + 7761.84, leases=751.72 + 222.71, exceptional=-138.55, other_income=577.51),
+    ("ACC", "FY2025-26"): dict(revenue=25961.85, total_expenses=24242.04, finance=112.05, dep=1118.34,
+        share_cap=187.99, other_equity=20362.55, nci=3.95, ca=11372.89, cl=5761.52, ocf=-1357.75, capex=1433.42,
+        borrowings=0.0, leases=None, exceptional=27.95, other_income=401.94),
+    ("DALBHARAT", "FY2023-24"): dict(revenue=14691, total_expenses=13936, finance=386, dep=1498,
+        share_cap=38, other_equity=16359, ca=7830, cl=4474, ocf=2635, capex=2827, exceptional=0.0, other_income=315),
+    ("SHREECEM", "FY2023-24"): dict(revenue=20403.80, total_expenses=18042.72, finance=258.34, dep=1897.32,
+        share_cap=36.08, other_equity=20666.84, ca=12212.21, cl=6127.83, ocf=3347.49, capex=3140.30,
+        borrowings=713.08 + 761.84, leases=141.65 + 38.98, exceptional=0.0, other_income=598.12),
+    ("DALBHARAT", "FY2025-26"): dict(revenue=14804, total_expenses=13550, finance=480, dep=1349,
+        share_cap=38, other_equity=17941, nci=144, ca=8763, cl=5674, ocf=2278, capex=2056,
+        borrowings=6168 + 584, leases=591 + 63, exceptional=-26, other_income=222),
     ("DALBHARAT", "FY2024-25"): dict(revenue=13980, total_expenses=13303, finance=399, dep=1331,
         share_cap=38, other_equity=17336, nci=126, ca=8314, cl=5223, ocf=2117, capex=2664,
         borrowings=4605 + 653, leases=395 + 49, exceptional=-113, other_income=253),
@@ -100,12 +140,20 @@ FILING = {
 }
 
 NOTES = {
-    ("AMBUJACEM", "FY2024-25", "operating_cash_flow"): "Large difference (about 47%). Cause NOT established. Possible explanations to check, not conclusions: the aggregators may carry restated comparatives, or the extraction/definition may differ. Compare against the FY2025-26 annual report comparatives before relying on this year's cash-flow metrics.",
-    ("AMBUJACEM", "FY2024-25", "current_assets"): "Cause not established; see operating cash flow note.",
-    ("AMBUJACEM", "FY2024-25", "depreciation"): "Loaded EBIT uses depreciation 2,297; the filing shows 2,478.34. Cause not established.",
-    ("AMBUJACEM", "FY2024-25", "revenue"): "Small difference; cause not established.",
-    ("AMBUJACEM", "FY2025-26", "ebit"): "Loaded EBIT is about 38 crore (1.3%) above the filing-derived figure; cause not established.",
+    ("AMBUJACEM", "FY2025-26", "ebit"): "Loaded EBIT was 3,007 (aggregator-derived); corrected to the filing-derived figure (see corrections_log.csv). Matches the company's operating EBITDA of Rs 6,539 cr less depreciation.",
+    ("AMBUJACEM", "FY2024-25", "operating_cash_flow"): "UNRESOLVED. Loaded 2,237 vs ORIGINAL filing 3,295.17 (loaded is 32% below the filing, filing is 47% above loaded). Ambuja's FY2025-26 annual report marks its 2024-25 figures 'Restated, refer Note 68(h)', and the loaded revenue and EBITDA equal those restated comparatives, so the loaded series is probably the restated one. The restated cash-flow figure itself was not obtained, so this remains unresolved; treat FY2024-25 cash-flow ratios as provisional.",
+    ("AMBUJACEM", "FY2024-25", "current_assets"): "UNRESOLVED. Original filing vs loaded series; see operating cash flow note (probable restatement, not confirmed).",
+    ("AMBUJACEM", "FY2024-25", "depreciation"): "UNRESOLVED. Loaded depreciation 2,297 vs original filing 2,478.34; probable restatement (see operating cash flow note), restated figure not obtained.",
+    ("AMBUJACEM", "FY2024-25", "revenue"): "Not like-for-like with the ORIGINAL filing: the loaded 35,336 equals the restated 2024-25 revenue in Ambuja's FY2025-26 annual report (Financial Highlights, 'Restated, refer Note 68(h)') and media release; see the restated-revenue row.",
 }
+NOTES[("SHREECEM", "FY2023-24", "capex")] = "Figure read from a column-aligned table that was partly garbled in the extracted text; re-check the PDF page before quoting."
+NOTES[("DALBHARAT", "FY2023-24", "capex")] = "Comparative column. Debt not compared: the current-borrowings figure was unreadable in the extracted text."
+STATUS_OVERRIDES = {("AMBUJACEM", "FY2024-25", "revenue"): "unverified"}
+AMBUJA_RELEASE = dict(
+    doc="Ambuja Cements media release for FY2025-26 results (FY2025-26 vs FY2024-25 consolidated comparatives), NSE archives",
+    date="2026-05-04 (from filing timestamp in URL)",
+    where="Results summary table: Revenue from Operations and Operating EBITDA, FY26 vs FY25 columns (no page number shown in extracted text)",
+    url="https://nsearchives.nseindia.com/corporate/AMBUJACEM_04052026141805_ACL_Media_Release2.pdf")
 DEBT_NOTE = ("Filing borrowings only: lease liabilities were not located in the extracted statements, while the loaded debt "
              "(aggregator borrowings) appears to include them. Not like-for-like, so left unverified.")
 
@@ -155,9 +203,30 @@ def main() -> int:
                     note="Borrowings + lease liabilities from the balance sheet: confirms the loaded debt includes leases.")
             else:
                 add("total_debt", app["total_debt"], f["borrowings"], st="unverified", note=DEBT_NOTE)
+    # Ambuja: loaded 2024-25 series vs the company's own restated comparatives (FY2025-26 media release, Rs crore)
+    for fy, item, app_val, filing_val, note in (
+        ("FY2024-25", "revenue_restated_comparative", float(loaded[("AMBUJACEM", "FY2024-25")]["revenue"]), 35336.0,
+         "Matches the restated FY2024-25 comparative published with the FY2025-26 results; the original FY2024-25 filing shows 35,044.76."),
+        ("FY2024-25", "operating_ebitda_restated_comparative",
+         float(loaded[("AMBUJACEM", "FY2024-25")]["ebit"]) + dep_used[("AMBUJACEM", "FY2024-25")], 5971.0,
+         "Loaded EBIT + depreciation equals the restated FY2024-25 operating EBITDA. The company states this includes one-time income of about Rs 826 cr (excise refund) and Rs 138 cr (GST incentive); EBIT and margin for this year are therefore flattered."),
+        ("FY2025-26", "operating_ebitda", float(loaded[("AMBUJACEM", "FY2025-26")]["ebit"]) + dep_used[("AMBUJACEM", "FY2025-26")], 6539.0,
+         "Loaded EBIT (after correction) + depreciation vs the company's operating EBITDA; the release rounds to whole crore."),
+    ):
+        diff = app_val - filing_val
+        d = AMBUJA_RELEASE
+        out.append(["AMBUJACEM", fy, "consolidated", item, round(app_val, 2), round(filing_val, 2), round(diff, 2),
+                    round(100 * diff / filing_val, 3), status(app_val, filing_val), METHOD, d["doc"], d["date"], d["where"],
+                    d["url"], note])
+    for r in out:
+        st_over = STATUS_OVERRIDES.get((r[0], r[1], r[3]))
+        if st_over:
+            r[8] = st_over
+    for r in out:
+        r.append(CHECKED_ON)
     out.sort(key=lambda r: (r[0], r[1], r[3]))
     header = ["ticker", "financial_year", "basis", "item", "app_value_cr", "filing_value_cr", "difference_cr", "difference_pct",
-              "status", "method", "source_doc", "publication_date", "location", "source_url", "notes"]
+              "status", "method", "source_doc", "publication_date", "location", "source_url", "notes", "date_checked"]
     with open(OUT, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(header)

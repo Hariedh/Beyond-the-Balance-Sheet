@@ -20,11 +20,11 @@ Credit-risk teams screen portfolios for early signs of weakening repayment capac
 * Expect questions on window functions, NULL handling, why a LEFT JOIN, why raw and clean tables.
 
 ## Python
-`compute_metrics` (pandas, `safe_div`), `persistence_table` (loop per company/indicator with a streak counter and adjacency check on `fy_start`), `stress_test` (pure function over a row), `peer_table` (filter then median), `build_report` (list of dict rows). Tests: 146 with pytest, including SQL vs pandas parity and an independent stdlib recompute (`scripts/audit_recalc.py`, 0 disagreements over 287 values).
+`compute_metrics` (pandas, `safe_div`), `persistence_table` (loop per company/indicator with a streak counter and adjacency check on `fy_start`), `stress_test` (pure function over a row), `peer_table` (filter then median), `build_report` (list of dict rows). Tests: 179 with pytest, including SQL vs pandas parity and an independent stdlib recompute (`scripts/audit_recalc.py`, 0 disagreements over 287 values).
 
 ## Limitations to volunteer
 * Five companies, 41 company-years including synthetic; no statistics possible.
-* Aggregator data for most years; 61 inputs compared with filings via automated text extraction (not a PDF viewer); four Ambuja discrepancies unresolved (OCF FY25 -32%).
+* Aggregator data for most years; 113 inputs (12 of 26 company-years) compared with filings via automated text extraction (not a PDF viewer); 14 company-years not yet checked; three Ambuja FY2024-25 differences unresolved (OCF -32%, probably a restated year); one value corrected (Ambuja FY26 EBIT) with an audit trail.
 * Debt/lease scope unverified for most firms; cash blank; thresholds illustrative; stress model ignores tax, working capital, refinancing and debt maturities.
 * Live AI (Gemini/Ollama) never tested; rules-only mode is the tested path.
 
@@ -33,3 +33,9 @@ Credit-risk teams screen portfolios for early signs of weakening repayment capac
 2. Why is a missing year not "ok"? Absence of evidence is not evidence of health.
 3. How did you check the numbers? Independent recompute, filing comparison, parity tests.
 4. What would you change with more time? Resolve Ambuja gaps, widen filing checks, add sourced external indicators.
+
+
+## Worked example: from a metric to a warning to a follow-up (real data)
+**Ambuja Cements, consolidated, FY2025-26.** Operating cash flow is Rs 5,362 cr and capex Rs 6,344 cr, so free cash flow is -Rs 982 cr (OCF - capex). It was also negative in FY2024-25 (the loaded figure is provisional: the cash-flow input is an unresolved difference from the original filing). The rule NEGATIVE_FREE_CASH_FLOW fires and persistence says "persistent" (two directly consecutive observed years). Interest coverage is a comfortable 13.25x, so the assessment adds a "conflicting signals" line: coverage alone would have looked reassuring.
+What the data do NOT say: that Ambuja is in distress. Capex exceeding operating cash flow is common during expansion, and the threshold (zero) is a sign boundary.
+What the analyst investigates next: how the shortfall was financed (debt is tiny; cash and investments were large), what the capex is for (capacity vs maintenance), whether FY2024-25 cash flow was restated (Note 68(h)), and whether FY2024-25 EBIT includes the one-time income (about Rs 964 cr) the company discloses. The stress test then shows how far revenue would have to fall before coverage reaches 1.0x (about 92% at constant margin, much less with fixed costs) and that free cash flow, under the simplified assumption, would fall rupee for rupee with EBIT.

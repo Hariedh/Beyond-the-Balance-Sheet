@@ -304,11 +304,12 @@ def load_disclosures(conn: sqlite3.Connection, paths: Iterable[Path]) -> LoadRep
                                  "Keep excerpts short and paraphrase where possible.",
                                  ticker=ticker, source_file=path.name)
             fy = normalise_fy(row.get("financial_year", "")) if row.get("financial_year", "").strip() else None
-            relationship = row.get("relationship", "").strip().lower() or None
-            if relationship not in (None, "established", "possible_explanation"):
+            # every explanation is classified; a blank means nobody has assessed it (never 'established')
+            relationship = row.get("relationship", "").strip().lower() or "not_assessed"
+            if relationship not in RELATIONSHIPS:
                 report.add_issue("warning", "invalid_relationship",
-                                 f"Row {i + 2}: relationship '{relationship}' is not 'established' or "
-                                 "'possible_explanation'; stored as possible_explanation (the safer reading).",
+                                 f"Row {i + 2}: relationship '{relationship}' is not one of {RELATIONSHIPS}; "
+                                 "stored as possible_explanation (the safer reading).",
                                  ticker=ticker, source_file=path.name)
                 relationship = "possible_explanation"
             conn.execute(
@@ -359,6 +360,7 @@ def load_external(conn: sqlite3.Connection, paths: Iterable[Path]) -> LoadReport
 
 
 # --- source verification ------------------------------------------------------
+RELATIONSHIPS = ("established", "possible_explanation", "unresolved", "not_assessed")
 VERIFICATION_STATUSES = ("verified", "approx", "discrepancy", "unverified")
 
 
@@ -387,11 +389,12 @@ def load_source_verification(conn: sqlite3.Connection, paths: Iterable[Path]) ->
             conn.execute(
                 "INSERT INTO source_verification (company_id, financial_year, basis, item, app_value_cr, "
                 "filing_value_cr, difference_cr, difference_pct, status, method, source_doc, publication_date, "
-                "location, source_url, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "location, source_url, notes, date_checked) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (tickers[ticker], fy, (normalise_basis(row.get("basis", "")) or "consolidated"), row["item"].strip(),
                  *vals, status, row.get("method", "").strip() or None, row["source_doc"].strip(),
                  row.get("publication_date", "").strip() or None, row.get("location", "").strip() or None,
-                 row.get("source_url", "").strip() or None, row.get("notes", "").strip() or None))
+                 row.get("source_url", "").strip() or None, row.get("notes", "").strip() or None,
+                 row.get("date_checked", "").strip() or None))
             report.rows_loaded += 1
             if status == "discrepancy":
                 report.add_issue("warning", "source_discrepancy",

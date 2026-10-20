@@ -132,7 +132,7 @@ def context_notes(row: pd.Series, current_ratio_min: float = 1.0) -> list[str]:
     fcf = row.get("free_cash_flow_cr")
     if pd.notna(fcf) and fcf < 0 and pd.notna(ocf) and ocf >= 0:
         notes.append("Free cash flow is negative because capex exceeded operating cash flow. In a capital-intensive "
-                     "industry this can reflect expansion spending rather than stress; check how it was financed.")
+                     "industry this may be consistent with expansion spending rather than stress (a hypothesis, not shown by the data); check how it was financed.")
     cr = row.get("current_ratio")
     if pd.notna(cr) and cr < current_ratio_min:
         notes.append("A current ratio below the threshold can be structural for some business models (for example "

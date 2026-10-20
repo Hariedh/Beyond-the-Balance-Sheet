@@ -155,3 +155,38 @@ def test_ai_runs_survive_pipeline_rerun(tmp_path):
     conn.close()
     run_pipeline(db_path=db, export_dir=None)
     assert query_df(connect(db), "SELECT COUNT(*) AS n FROM ai_runs").loc[0, "n"] == 1
+
+
+def _packet_with_disclosures(rel):
+    return {"is_illustrative": False, "years": ["FY2024-25"], "figures": [], "ratios": [], "flags": [], "company": {},
+            "disclosures": [{"id": "DISC.1", "relationship": rel, "excerpt": "x", "topic": "t"}],
+            "external_indicators": [], "data_notes": []}
+
+
+@pytest.mark.parametrize("rel,expect_problem", [("established", False), ("possible_explanation", True),
+                                                ("unresolved", True), ("not_assessed", True)])
+def test_documented_label_requires_established_disclosure(rel, expect_problem, monkeypatch):
+    pk = _packet_with_disclosures(rel)
+    monkeypatch.setattr(ai, "packet_ids", lambda p: {"DISC.1"})
+    com = {"observed_changes": [], "alternative_explanations": [], "caveats": [],
+           "implications": [{"statement": "The filing records a one-off item.", "evidence_ids": ["DISC.1"],
+                             "label": "documented"}]}
+    ver = ai.verify_commentary(com, pk)
+    got = any("not marked 'established'" in p for r in ver["items"] for p in r["problems"])
+    assert got is expect_problem
+
+
+def test_system_prompt_forbids_scenario_as_fact_and_weak_documented():
+    assert "no stress-test or scenario results" in ai.SYSTEM_PROMPT
+    assert "established" in ai.SYSTEM_PROMPT
+
+
+def test_rules_only_works_on_real_data_without_any_ai_credentials(monkeypatch):
+    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    from btb.config import DB_PATH
+    conn = connect(DB_PATH)
+    p = build_packet(conn, "AMBUJACEM", "consolidated")
+    com = ai.rules_only_summary(p)
+    assert ai.verify_commentary(com, p)["problem_count"] == 0
+    assert com["implications"] == []                       # no hypotheses are invented in rules-only mode

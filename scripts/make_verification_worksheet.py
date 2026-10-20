@@ -10,19 +10,46 @@ out = ["# Source-verification worksheet", "",
        "**How the values were obtained:** the filing text was read through automated extraction of the primary "
        "document (NSE iXBRL filing or company PDF). It was NOT opened and checked visually in a PDF viewer. "
        "Page numbers are given only where the extracted text showed them; otherwise the statement/section is named.", "",
-       "**Statuses:** verified = within max(1.5 crore, 0.1%); approx = within 1%; discrepancy = more than 1% (unresolved, "
-       "left as loaded); unverified = filing figure is not like-for-like with the loaded figure. Difference % is "
-       "(app - filing) / filing.", "",
+       "**Statuses:** verified = within max(1.5 crore, 0.1%); approx = within 1%; unresolved discrepancy = more than 1% (cause not established, value left as loaded); not like-for-like (`unverified` in the CSV) = the filing figure is defined differently from the loaded one; not yet checked = no comparison made. Difference % is (app - filing) / filing. Each row carries the date it was checked.", "",
        f"Totals: {len(v)} comparisons; " + ", ".join(f"{k} {n}" for k, n in v['status'].value_counts().items()) + ".", ""]
-for tkr, g in v.groupby("ticker"):
-    src = g.iloc[0]
-    out += [f"## {tkr}", "", f"* Source: {src['source_doc']}", f"* Published: {src['publication_date']}",
-            f"* Location: {src['location']}", f"* URL: {src['source_url']}", "",
-            "| Year | Item | App value (cr) | Filing value (cr) | Diff % | Status | Note |", "|---|---|---|---|---|---|---|"]
+real = pd.read_csv(ROOT / "data/raw/financials_real.csv")
+chk = v.groupby(["ticker", "financial_year"])["status"].agg(lambda x: x.value_counts().to_dict())
+def worst(d):
+    for k in ("discrepancy", "unverified", "approx", "verified"):
+        if d.get(k):
+            return k
+cov = ["## Coverage of the 26 real company-years", "",
+       "'Not yet checked' means no input for that year has been compared with a primary filing; those years rest on "
+       "aggregator data (Screener.in, stockanalysis.com) that passed only the automated cross-checks.", "",
+       "| Company | Year | Months | Filing check | Detail |", "|---|---|---|---|---|"]
+for r in real.sort_values(["ticker", "financial_year"]).itertuples():
+    d = chk.get((r.ticker, r.financial_year))
+    if d is None:
+        cov.append(f"| {r.ticker} | {r.financial_year} | {r.period_months} | Not yet checked | |")
+    else:
+        label = {"discrepancy": "Unresolved discrepancy (some inputs)", "unverified": "Verified/approx, some inputs not like-for-like",
+                 "approx": "Verified/approx", "verified": "Verified"}[worst(d)]
+        cov.append(f"| {r.ticker} | {r.financial_year} | {r.period_months} | {label} | " + ", ".join(f"{k} {n}" for k, n in d.items()) + " |")
+n_checked = len(chk)
+out += [f"**Coverage:** {n_checked} of {len(real)} real company-years have at least one input compared with a filing; "
+        f"{len(real) - n_checked} are not yet checked. The dataset is therefore NOT fully verified.", ""] + cov + [""]
+corr_path = ROOT / "data/raw/corrections_log.csv"
+if corr_path.exists():
+    c = pd.read_csv(corr_path)
+    out += ["## Corrections applied (audit trail)", "", "| Company | Year | Field | Original | Revised | Source | Reason | Date checked |", "|---|---|---|---|---|---|---|---|"]
+    for r in c.itertuples():
+        out.append(f"| {r.ticker} | {r.financial_year} | {r.field} | {r.original_value_cr} | {r.revised_value_cr} | {r.source_url} | {r.reason} | {r.date_checked} |")
+    out.append("")
+for (tkr, fy), g in v.groupby(["ticker", "financial_year"]):
+    srcs = g.drop_duplicates("source_url")
+    out += [f"## {tkr} {fy}", ""]
+    for src in srcs.itertuples():
+        out += [f"* Source: {src.source_doc}", f"  * Published: {src.publication_date}; location: {src.location}", f"  * URL: {src.source_url}"]
+    out += ["", "| Item | App value (cr) | Filing value (cr) | Diff % | Status | Checked | Note |", "|---|---|---|---|---|---|---|"]
     for r in g.itertuples():
         d = "n/a" if pd.isna(r.difference_pct) else f"{r.difference_pct:+.2f}"
-        out.append(f"| {r.financial_year} | {r.item} | {r.app_value_cr:,.2f} | {r.filing_value_cr:,.2f} | {d} | {r.status} | "
-                   f"{'' if pd.isna(r.notes) else str(r.notes)[:160]} |")
+        out.append(f"| {r.item} | {r.app_value_cr:,.2f} | {r.filing_value_cr:,.2f} | {d} | {r.status} | {r.date_checked} | "
+                   f"{'' if pd.isna(r.notes) else str(r.notes)[:220]} |")
     out.append("")
 (ROOT / "docs/source_verification_worksheet.md").write_text("\n".join(out), encoding="utf-8")
 print("wrote worksheet", len(v))

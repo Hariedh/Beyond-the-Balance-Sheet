@@ -6,6 +6,6 @@
 4. **Warnings (90 s).** Open one expander: indicator, observed value, threshold, formula, why it matters, persistence, history, peer context, data quality, follow-up. Show the persistence grid: a missing year is "not assessable", not "ok". Read the layered assessment: a breach is not distress; "no rule fired" is inconclusive, not safe.
 5. **Peers (30 s).** Medians over comparable 12-month periods only; no ranking. Switch to AMBUJACEM to show the 15-month period excluded.
 6. **Stress (60 s).** Revenue -20%, then 50% fixed costs: EBIT falls faster (operating leverage). Show the break-even revenue fall and the assumptions expander. "A what-if, not a forecast."
-7. **Evidence (30 s).** Disclosures (established vs possible explanation) and the verification table: 49 of 61 checks verified, Ambuja discrepancies reported and unresolved.
+7. **Evidence (30 s).** Disclosures (established vs possible explanation) and the verification table: 97 of 113 checks verified, 12 of 26 company-years checked at all, Ambuja FY2024-25 differences reported as unresolved (a restated year).
 8. **Export (20 s).** Download the CSV; rows are labelled observed / checked / hypothesis / scenario / limitation.
 9. **Close.** "What I would do next: resolve the Ambuja gaps, extend filing checks to earlier years."
