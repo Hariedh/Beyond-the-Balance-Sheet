@@ -514,17 +514,31 @@ with st.expander("Optional: narrative wording (rules-only, or AI-assisted)"):
 
     provider_ready = True
     confirm_public = True
-    prov_key, model_name = "", ""
+    prov_key, model_name, api_key = "", "", ""
     if mode == "ai":
         statuses = llm.all_statuses()
         keys = [s.key for s in statuses]
-        first_ready = next((s.key for s in statuses if s.available), keys[0])
-        prov_key = st.selectbox("Model provider", keys, index=keys.index(first_ready),
+        prov_key = st.selectbox("Model provider", keys, index=keys.index("gemini"),
                                 format_func=lambda k: llm.LABELS[k])
         sel = next(s for s in statuses if s.key == prov_key)
         provider_ready = sel.available
-        (st.caption if sel.available else st.warning)(sel.reason)
-        if prov_key == "ollama" and sel.available:
+        if prov_key == "gemini":
+            api_key = st.text_input("Gemini API key", type="password", placeholder="Paste your key (AIza...)",
+                                    help="Free key from Google AI Studio (aistudio.google.com/apikey). Kept in this "
+                                         "browser session only; never saved to disk or to the database.").strip()
+            provider_ready = bool(api_key) or sel.available
+            if not provider_ready:
+                st.warning("Paste a Gemini API key to use AI-assisted mode.")
+            gem_models = list(dict.fromkeys([sel.default_model, "gemini-2.5-flash", "gemini-2.5-flash-lite",
+                                             "gemini-2.5-pro"]))
+            pick = st.selectbox("Gemini model", gem_models + ["Other (type model ID)"])
+            model_name = (st.text_input("Model ID", value=sel.default_model).strip()
+                          if pick.startswith("Other") else pick)
+        else:
+            (st.caption if sel.available else st.warning)(sel.reason)
+        if prov_key == "gemini":
+            pass
+        elif prov_key == "ollama" and sel.available:
             installed = llm.ollama_models()
             model_name = st.selectbox("Model", installed,
                                       index=installed.index(sel.default_model) if sel.default_model in installed else 0)
@@ -549,7 +563,8 @@ with st.expander("Optional: narrative wording (rules-only, or AI-assisted)"):
                 model = f"{prov_key}:{model_name}"
                 with st.spinner("Asking the model ..."):
                     try:
-                        commentary = ai.generate_ai_commentary(packet, provider=prov_key, model=model_name)
+                        commentary = ai.generate_ai_commentary(packet, provider=prov_key, model=model_name,
+                                                                 api_key=api_key)
                     except Exception as exc:  # network, key, quota, or malformed JSON
                         st.error(f"AI commentary failed: {exc}")
                         commentary = None

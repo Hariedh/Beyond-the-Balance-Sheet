@@ -61,15 +61,24 @@ def test_rules_only_commentary_flow(app):
 @pytest.fixture
 def no_llm_env(monkeypatch):
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "LLM_BASE_URL", "LLM_MODEL"):
-        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(name, "")   # empty, not deleted: load_dotenv() won't override an existing variable
     monkeypatch.setenv("OLLAMA_HOST", "http://127.0.0.1:9")   # nothing listens here
 
 
 def test_ai_mode_blocked_without_provider(app, no_llm_env):
     app.radio[0].set_value("AI-assisted summary").run()
     assert not app.exception, [e.value for e in app.exception]
-    assert any("GEMINI_API_KEY" in w.value for w in app.warning)       # default provider explains what to set
+    assert any("Gemini API key" in w.value for w in app.warning)       # default provider asks for a key
     assert next(b for b in app.button if b.label == "Generate commentary").disabled
+
+
+def test_ai_mode_pasted_gemini_key_enables_generation(app, no_llm_env):
+    app.radio[0].set_value("AI-assisted summary").run()
+    key_box = next(t for t in app.text_input if t.label == "Gemini API key")
+    key_box.set_value("pasted-test-key").run()
+    assert not app.exception, [e.value for e in app.exception]
+    app.checkbox[0].check().run()
+    assert not next(b for b in app.button if b.label == "Generate commentary").disabled
 
 
 def test_ai_mode_with_gemini_key_requires_public_data_confirmation(app, monkeypatch, no_llm_env):

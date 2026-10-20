@@ -244,15 +244,17 @@ def normalise_commentary(data: dict) -> dict:
 
 
 def generate_ai_commentary(packet: dict, provider: str = "anthropic", model: str | None = None,
-                           call_model: Callable[[str, str, str], str] | None = None, retries: int = 1) -> dict:
+                           call_model: Callable[[str, str, str], str] | None = None, retries: int = 1,
+                           api_key: str = "") -> dict:
     """Ask a model to summarise the packet.
 
     provider   one of llm.PROVIDERS ('gemini', 'ollama', 'openai_compatible', 'anthropic')
     call_model optional `(system, user, model) -> text` used instead of a real provider (tests)
+    api_key    optional key passed to the provider (Gemini), instead of the environment
     retries    extra attempts if the reply is not valid JSON (small local models need this sometimes)
     """
     model = model or llm.default_model(provider)
-    call = call_model or (lambda s, u, m: llm.complete(provider, s, u, m))
+    call = call_model or (lambda s, u, m: llm.complete(provider, s, u, m, api_key=api_key))
     user = ("Evidence packet (JSON). Use only this.\n\n" + json.dumps(packet, ensure_ascii=False, indent=1))
     last: Exception | None = None
     for attempt in range(retries + 1):

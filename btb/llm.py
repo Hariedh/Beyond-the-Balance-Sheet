@@ -139,10 +139,10 @@ def _open(req: urllib.request.Request, timeout: float) -> dict:
 # --------------------------------------------------------------------------
 # provider calls: each returns the model's text
 # --------------------------------------------------------------------------
-def _gemini(system: str, user: str, model: str, timeout: float) -> str:
-    key = gemini_key()
+def _gemini(system: str, user: str, model: str, timeout: float, api_key: str = "") -> str:
+    key = api_key.strip() or gemini_key()
     if not key:
-        raise LLMError("GEMINI_API_KEY is not set. Create a free key in Google AI Studio and put it in .env.")
+        raise LLMError("No Gemini API key. Paste one in the dashboard, or set GEMINI_API_KEY (free key from Google AI Studio).")
     body = {
         "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -211,10 +211,16 @@ def _anthropic(system: str, user: str, model: str, timeout: float) -> str:
 _CALLERS = {"gemini": _gemini, "ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic}
 
 
-def complete(provider: str, system: str, user: str, model: str | None = None, timeout: float = 120.0) -> str:
-    """Send one request to the chosen provider and return the model's text."""
+def complete(provider: str, system: str, user: str, model: str | None = None, timeout: float = 120.0,
+             api_key: str = "") -> str:
+    """Send one request to the chosen provider and return the model's text.
+
+    api_key (Gemini only) overrides the environment key, e.g. a key pasted into the dashboard.
+    """
     if provider not in _CALLERS:
         raise LLMError(f"Unknown provider '{provider}'. Choose one of: {', '.join(PROVIDERS)}.")
+    if provider == "gemini" and api_key:
+        return _gemini(system, user, model or default_model(provider), timeout, api_key)
     return _CALLERS[provider](system, user, model or default_model(provider), timeout)
 
 
